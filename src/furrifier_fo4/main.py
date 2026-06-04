@@ -1,0 +1,86 @@
+"""FO4 furrifier CLI entry point.
+
+Parses args, runs `session.run` (furrify + ghoul-armor + facegen), prints a
+stats summary. Thin by design — the pipeline lives in session.py.
+"""
+
+from __future__ import annotations
+
+import logging
+import sys
+import time
+
+from .config import FurrifierConfig, build_parser, normalize_argv, setup_logging
+from . import session
+
+log = logging.getLogger(__name__)
+
+
+def run_furrification(config: FurrifierConfig) -> int:
+    log.info("Fallout 4 Furrifier")
+    log.info("  Scheme:        %s", config.race_scheme)
+    log.info("  Patch:         %s", config.patch_filename)
+    log.info("  Build FaceGen: %s", config.build_facegen)
+    if config.only_faction:
+        log.info("  Only factions: %s", ", ".join(config.only_faction))
+    if config.limit is not None:
+        log.info("  Limit:         %d", config.limit)
+
+    t0 = time.perf_counter()
+    try:
+        stats = session.run(
+            config.race_scheme,
+            patch_name=config.patch_filename,
+            plugins=config.plugins,
+            data_dir=config.data_dir,
+            output_dir=config.output_dir,
+            limit=config.limit,
+            only_faction=config.only_faction,
+            bake_facegen=config.build_facegen,
+            facegen_size=config.facegen_size,
+            refurrify_existing=config.refurrify_existing,
+            workers=config.workers,
+            throttle=config.throttle,
+        )
+    except FileNotFoundError as exc:
+        log.error("%s", exc)
+        return 1
+    except Exception:
+        log.exception("Furrification failed")
+        return 1
+
+    mins, secs = divmod(int(round(time.perf_counter() - t0)), 60)
+    fg = stats.get("facegen") or {}
+    log.info("Done in %dm %02ds", mins, secs)
+    log.info("  Furrified:  %d / %d NPCs", stats["furrified"], stats["total"])
+    log.info("  Left human: %d   gated: %d   no-child-race: %d   preserved: %d",
+             stats["left_human"], stats["gated"], stats["no_child_race"],
+             stats.get("preserved", 0))
+    log.info("  Templated leaves: %d   -> trait-owners furrified: %d",
+             stats.get("templated", 0), stats.get("owner_furrified", 0))
+    log.info("  Owners expanded:  %d   -> variants minted: %d",
+             stats.get("expanded_owners", 0), stats.get("variants", 0))
+    log.info("  ARMAs fixed: %d", stats["armas_patched"])
+    if fg:
+        log.info("  FaceGen: %d textures, %d nifs (%d failed)",
+                 fg.get("baked", 0), fg.get("nif", 0), fg.get("nif_failed", 0))
+    by_race = stats.get("race_counts") or {}
+    for race, n in sorted(by_race.items(), key=lambda kv: -kv[1]):
+        log.info("      %-22s %d", race, n)
+    return 0
+
+
+def main() -> int:
+    # Required before the facegen ProcessPoolExecutor in a frozen build; no-op
+    # from source.
+    import multiprocessing
+    multiprocessing.freeze_support()
+    parser = build_parser()
+    args = parser.parse_args(normalize_argv(sys.argv[1:]))
+    config = FurrifierConfig.from_args(args)
+    setup_logging(config)
+    return run_furrification(config)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

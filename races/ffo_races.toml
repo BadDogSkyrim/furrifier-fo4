@@ -1,0 +1,179 @@
+# FFO race catalog (test): child-race mappings + appearance customization for
+# the present furry races. A child-race NPC (HumanChildRace) furrified to a
+# race here is mapped to its child variant; a race with no child_race leaves
+# child NPCs un-furrified.
+#
+# weight_range = [[thin lo,hi],[musc lo,hi],[fat lo,hi]] (0-100) remaps MWGT.
+# EYEBROWS/FACIAL_HAIR/etc = probability, or {probability=, headpart=[...]}.
+
+####### Cheetah #######
+
+[[race_customization]]
+race = "FFOCheetahRace"
+child_race = "FFOCheetahChildRace"
+# Cheetahs are lean: thin-leaning, low muscle, low fat.
+weight_range = [[40, 100], [0, 60], [0, 30]]
+
+####### Deer #######
+
+breeds = [
+  # All deer are one of these breeds.
+  {breed = "DikdikBreed", race = "BDDeerRace", probability = 0.1},
+  {breed = "Elk", race = "BDDeerRace", probability = 0.15},
+  {breed = "Gazelle", race = "BDDeerRace", probability = 0.1},
+  {breed = "Goat", race = "BDDeerRace", probability = 0.1},
+  {breed = "Moose", race = "BDDeerRace", probability = 0.15},
+  {breed = "Reindeer", race = "BDDeerRace", probability = 0.20},
+  {breed = "WhiteTailBreed", race = "BDDeerRace", probability = 0.20},
+]
+
+[color_schemes.Dikdik]
+Skin_tone = [["FFOFurBrown", 0.9], ["FFOFurBrownD", 0.8], ["FFOFurBrownL", 0.8], ["FFOFurRedBrown", 0.4]]
+Eye_Lower = [["probability", 0.7], ["FFOFurBlack", 0.5], ["FFOFurBlack", 0.7], ["FFOFurWhite", 0.5], ["FFOFurWhite", 0.3], ["FFOFurTan", 0.6], ["FFOFurTan", 0.4]]
+Eyebrow = [["probability", 0.7], ["FFOFurBlack", 0.5], ["FFOFurBlack", 0.7], ["FFOFurWhite", 0.5], ["FFOFurWhite", 0.3], ["FFOFurTan", 0.6], ["FFOFurTan", 0.4]]
+Chin = [["FFOFurWhite", 0.5], ["FFOFurWhite", 0.3], ["FFOFurWhite", 0.1], ["FFOFurTan", 0.5], ["FFOFurTan", 0.3], ["FFOFurTan", 0.1], ]
+Muzzle = [["FFOFurBlack", 0.9], ["FFOFurBlack", 0.7], ["FFOFurBlack", 0.5], ]
+
+[color_schemes.ElkMoose]
+Skin_tone = [["FFOFurBrown", 0.9], ["FFOFurBrownD", 0.9], ["FFOFurBrown", 0.7], ["FFOFurBrownD", 0.7]]
+Muzzle_Upper = [["FFOFurBlack", 0.5], ["FFOFurBlack", 0.3], ["FFOFurBlack", 0.1], ["FFOFurBrownD", 0.5]]
+Eye_Lower = [["probability", 0.7], ["FFOFurBlack", 0.5], ["FFOFurBlack", 0.7], ["FFOFurWhite", 0.15], ["FFOFurWhite", 0.3], ["FFOFurTan", 0.3], ["FFOFurTan", 0.4]]
+Eyebrow = [["probability", 0.7], ["FFOFurBlack", 0.5], ["FFOFurBlack", 0.7], ["FFOFurWhite", 0.15], ["FFOFurWhite", 0.3], ["FFOFurTan", 0.3], ["FFOFurTan", 0.4]]
+Mouche = [["FFOFurBlack", 0.9], ["FFOFurBlack", 0.7], ["FFOFurBlack", 0.5], ]
+Muzzle_Stripe = [["FFOFurBlack", 0.9], ["FFOFurBlack", 0.7], ["FFOFurBlack", 0.5], ]
+
+[color_schemes.Gazelle]
+Skin_tone = [["FFOFurGinger", 0.9], ["FFOFurGingerD", 0.8], ["FFOFurBrownL", 0.8], ["FFOFurRusset", 0.8],]
+Eye_Lower = [["probability", 0.7], ["FFOFurWhite", 0.15], ["FFOFurWhite", 0.3], ["FFOFurTan", 0.3], ["FFOFurTan", 0.4]]
+Eyebrow = [["probability", 0.7], ["FFOFurWhite", 0.15], ["FFOFurWhite", 0.3], ["FFOFurTan", 0.3], ["FFOFurTan", 0.4]]
+Chin = [["FFOFurWhite", 0.7], ["FFOFurWhite", 0.5], ["FFOFurWhite", 0.3], ]
+Cheek_Color_Lower = [["FFOFurWhite", 0.5], ["FFOFurWhite", 0.3], ["FFOFurWhite", 0.1], ["FFOFurTan", 0.5], ["FFOFurTan", 0.3], ["FFOFurTan", 0.1], ]
+Muzzle = [["probability", 1.0], ["FFOFurWhite", 0.9], ["FFOFurWhite", 0.8], ["FFOFurWhite", 0.7]]
+Gazelle = [["FFOFurBlack", 0.9], ["FFOFurBlack", 0.7], ["FFOFurBlack", 0.6], ]
+
+[color_schemes.Goat]
+Skin_tone = [["FFOFurGinger", 0.9], ["FFOFurWhite", 0.9], ["FFOFurTan", 0.9], ["FFOFurGinger", 0.7], ["FFOFurWhite", 0.7], ["FFOFurTan", 0.7], ]
+Eye_Lower = [["probability", 0.5], ["FFOFurBlack", 0.5], ["FFOFurBlack", 0.7], ["FFOFurWhite", 0.5], ["FFOFurWhite", 0.3], ["FFOFurTan", 0.6], ["FFOFurTan", 0.4]]
+Eyebrow = [["probability", 0.5], ["FFOFurBlack", 0.5], ["FFOFurBlack", 0.7], ["FFOFurWhite", 0.5], ["FFOFurWhite", 0.3], ["FFOFurTan", 0.6], ["FFOFurTan", 0.4]]
+Chin = [["FFOFurWhite", 0.5], ["FFOFurWhite", 0.3], ["FFOFurWhite", 0.1], ["FFOFurTan", 0.5], ["FFOFurTan", 0.3], ["FFOFurTan", 0.1], ]
+
+[color_schemes.Reindeer]
+Skin_tone = [["FFOFurBrown", 0.9], ["FFOFurBrownD", 0.9], ["FFOFurBrown", 0.7], ["FFOFurBrownD", 0.7], ["FFOFurBlack", 0.5]]
+Muzzle_Upper = [["FFOFurBlack", 0.5], ["FFOFurBlack", 0.3], ["FFOFurBlack", 0.1], ["FFOFurBrownD", 0.5]]
+Eye_Lower = [["probability", 0.7], ["FFOFurBlack", 0.5], ["FFOFurBlack", 0.7], ["FFOFurWhite", 0.15], ["FFOFurWhite", 0.3], ["FFOFurTan", 0.3], ["FFOFurTan", 0.4]]
+Eyebrow = [["probability", 0.7], ["FFOFurBlack", 0.5], ["FFOFurBlack", 0.7], ["FFOFurWhite", 0.15], ["FFOFurWhite", 0.3], ["FFOFurTan", 0.3], ["FFOFurTan", 0.4]]
+Cheek_Color_Lower = [["FFOFurWhite", 0.5], ["FFOFurWhite", 0.3], ["FFOFurWhite", 0.1], ["FFOFurTan", 0.5], ["FFOFurTan", 0.3], ["FFOFurTan", 0.1], ]
+Mouche = [["probability", 0.5], ["FFOFurBlack", 0.9], ["FFOFurBlack", 0.7], ["FFOFurBlack", 0.5], ]
+Muzzle_Stripe = [["probability", 0.5], ["FFOFurBlack", 0.9], ["FFOFurBlack", 0.7], ["FFOFurBlack", 0.5], ]
+
+[color_schemes.WhiteTail]
+Skin_tone = [["FFOFurBrown", 0.9], ["FFOFurBrownL", 0.9], ["FFOFurRusset", 0.9], ["FFOFurRussetD", 0.9]]
+Eye_Lower = [["probability", 0.5], ["FFOFurWhite", 0.8], ["FFOFurWhite", 0.5], ["FFOFurTan", 0.8], ["FFOFurTan", 0.5]]
+Eyebrow = [["probability", 0.5], ["FFOFurWhite", 0.8], ["FFOFurWhite", 0.5], ["FFOFurTan", 0.8], ["FFOFurTan", 0.5]]
+Chin = [["probability", 1.0], ["FFOFurWhite", 0.9], ["FFOFurWhite", 0.8], ["FFOFurWhite", 0.5]]
+Muzzle = [["probability", 1.0], ["FFOFurWhite", 0.9], ["FFOFurWhite", 0.8]]
+Muzzle_Stripe = [["probability", 1.0], ["FFOFurBlack", 1.0], ["FFOFurBlack", 0.9]]
+
+[[race_customization]]
+race = "FFODeerRace"
+child_race = "FFODeerChildRace"
+
+[[race_customization]]
+race = "DikdikBreed"
+EYEBROWS = {headpart=["FFODeerHorns06"]} # Dikdik horns 
+colors = "Dikdik"
+
+[[race_customization]]
+race = "ElkBreed"
+sex = "male"
+colors = "ElkMoose"
+EYEBROWS = {headpart=["FFODeerHorns04"]} # Elk horns 
+FACIAL_HAIR = 0.2
+
+[[race_customization]]
+race = "ElkBreed"
+sex = "female"
+colors = "ElkMoose"
+EYEBROWS = 0.0 
+FACIAL_HAIR = 0.0
+
+[[race_customization]]
+race = "GazelleBreed"
+EYEBROWS = {headpart=["FFODeerHorns03", "FFODeerHorns10"]} # Gazelle or pronghorn horns 
+FACIAL_HAIR = 0.1
+colors = "Gazelle"
+
+[[race_customization]]
+race = "GoatBreed"
+EYEBROWS = {headpart=["FFODeerHorns07"]} # Goat horns 
+FACIAL_HAIR = 0.5
+colors = "Goat"
+
+[[race_customization]]
+race = "MooseBreed"
+sex = "male"
+colors = "ElkMoose"
+EYEBROWS = {headpart=["FFODeerHorns08"]} # Moose horns 
+FACIAL_HAIR = 0.2
+
+[[race_customization]]
+race = "MooseBreed"
+sex = "female"
+colors = "ElkMoose"
+EYEBROWS = 0.0 
+FACIAL_HAIR = 0.0
+
+[[race_customization]]
+race = "ReindeerBreed"
+colors = "Reindeer"
+EYEBROWS = {headpart=["FFODeerHorns02"]} # Moose horns 
+FACIAL_HAIR = 0.5
+
+[[race_customization]]
+race = "WhiteTailBreed"
+sex = "male"
+colors = "WhiteTail"
+EYEBROWS = {headpart=["FFODeerHorns01"]} # Whitetail horns on males
+FACIAL_HAIR = 0.15
+
+[[race_customization]]
+race = "WhiteTailBreed"
+colors = "WhiteTail"
+EYEBROWS = 0.0
+FACIAL_HAIR = 0.0
+sex = "female"
+
+####### Uncustomized Races #######
+
+[[race_customization]]
+race = "FFOFoxRace"
+child_race = "FFOFoxChildRace"
+
+[[race_customization]]
+race = "FFOHorseRace"
+child_race = "FFOHorseChildRace"
+
+[[race_customization]]
+race = "FFOHyenaRace"
+child_race = "FFOHyenaChildRace"
+
+[[race_customization]]
+race = "FFOLionRace"
+child_race = "FFOLionChildRace"
+
+[[race_customization]]
+race = "FFOLykaiosRace"
+child_race = "FFOLykaiosChildRace"
+
+[[race_customization]]
+race = "FFOOtterRace"
+child_race = "FFOOtterChildRace"
+
+[[race_customization]]
+race = "FFOSnekdogRace"
+child_race = "FFOSnekdogChildRace"
+
+[[race_customization]]
+race = "FFOTigerRace"
+child_race = "FFOTigerChildRace"
+

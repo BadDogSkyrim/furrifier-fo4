@@ -1,0 +1,25 @@
+# Your furrification scheme. Edit freely, then run:  furrify-fo4 --scheme user
+#
+# This ships nearly empty so the tool does nothing surprising out of the box.
+# Add weighted race targets per class below. See PLAN_FO4_SCHEME.md for the
+# full format, and builtin.toml for the classes you can target.
+
+# Optionally define extra classes here. Scheme classes are tried BEFORE the
+# built-ins, so they take priority.
+# class_match = [
+#     ["CLASS_FARHARBOR", "FACTION", "DLC03SettlementFarHarborFaction"],
+# ]
+
+# Distribute furry races across each class by weight (a weighting factor,
+# not a probability — the tool normalizes). Naming "HumanRace" reserves a
+# slice that stays human. Classes you don't list are left untouched.
+#
+# [[class_probabilities]]
+# class = "CLASS_SETTLER"
+# races = [
+#   ["HumanRace", 100],   # placeholder: everyone stays human until you edit
+# ]
+
+# Pin a specific NPC (or alias/family leader) to a race.
+# [npc_assignments]
+# "CompanionX6-88" = "FFOTigerRace"

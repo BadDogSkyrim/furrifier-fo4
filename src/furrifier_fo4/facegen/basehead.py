@@ -1,0 +1,134 @@
+"""Resolve a furry race's base head textures (the diffuse tints composite onto).
+
+For each (race, sex) the Face-type HDPT's model nif carries the head shape.
+In FO4 the **material file (.BGSM/.BGEM) is the authoritative source** for a
+shape's texture paths; the nif's inline BSShaderTextureSet is only a fallback
+when the material file can't be found. (FFO head nifs sometimes ship a
+placeholder inline diffuse like `textures\\g` and put the real paths in the
+BGSM.) The shader's name is the material path; we resolve it through our own
+AssetResolver — which finds BGSMs in BA2 archives that PyNifly's own search
+misses — and parse it. The FaceCustomization diffuse is the base diffuse with
+tints baked in; normal/specular pass through.
+
+Results are cached per (race, sex).
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Optional
+
+from ..models import Sex
+from .._pyn import ensure_dev_path
+
+log = logging.getLogger(__name__)
+
+
+def _norm_tex(path: str) -> str:
+    """Normalize a textures-relative path to a Data-relative one."""
+    p = path.replace("/", "\\")
+    if not p.lower().startswith("textures\\"):
+        p = "textures\\" + p.lstrip("\\")
+    return p
+
+
+def _norm_mat(path: str) -> str:
+    """Normalize a material path to a Data-relative `materials\\...` one."""
+    p = path.replace("/", "\\")
+    if not p.lower().startswith("materials\\"):
+        p = "materials\\" + p.lstrip("\\")
+    return p
+
+
+def resolve_shape_textures(shape, resolver) -> dict:
+    """Authoritative texture slots for a PyNifly shape: the BGSM/BGEM material
+    if resolvable (FO4's source of truth), else the nif's inline set. Slot
+    names are PyNifly shader slots; paths are Data-relative.
+
+    The CK bakes these resolved paths inline into the facegeom and drops the
+    material reference, so assemble.py writes them inline + clears the material
+    name (a lingering material ref would override the inline FaceCustomization).
+    """
+    matname = getattr(shape.shader, "name", None)
+    if matname:
+        mat_path = resolver.resolve(_norm_mat(matname))
+        if mat_path is not None:
+            from pyn.bgsmaterial import MaterialFile
+
+            mat = MaterialFile.Open(str(mat_path))
+            if mat is not None and mat.textures:
+                out = {}
+                for slot, p in mat.textures.items():
+                    if slot == "RootMaterialPath" or not p:
+                        continue
+                    out[slot] = _norm_tex(p)
+                if out:
+                    return out
+    return {slot: _norm_tex(p) for slot, p in shape.textures.items() if p}
+
+
+class BaseHeadTextures:
+    """(race, sex) -> {diffuse, normal, specular} Data-relative paths."""
+
+    def __init__(self, headpart_pools, resolver):
+        self.pools = headpart_pools
+        self.resolver = resolver
+        self._cache: dict = {}
+
+    def _material_textures(self, shape) -> Optional[dict]:
+        """Texture paths from the shape's BGSM/BGEM material, or None if the
+        material file can't be resolved/parsed."""
+        matname = getattr(shape.shader, "name", None)
+        if not matname:
+            return None
+        mat_path = self.resolver.resolve(_norm_mat(matname))
+        if mat_path is None:
+            log.debug("material file not found, will fall back to nif: %s", matname)
+            return None
+        from pyn.bgsmaterial import MaterialFile
+
+        mat = MaterialFile.Open(str(mat_path))
+        if mat is None or not mat.textures.get("Diffuse"):
+            return None
+        return mat.textures
+
+    def _read_nif_textures(self, model_rel: str) -> Optional[dict]:
+        ensure_dev_path()
+        from pyn.pynifly import NifFile
+
+        nif_path = self.resolver.resolve("meshes\\" + model_rel)
+        if nif_path is None:
+            log.warning("base head nif not found: %s", model_rel)
+            return None
+        nif = NifFile(str(nif_path))
+        # The head is the highest-poly shape (the only Face shape in the nif).
+        shape = max(nif.shapes, key=lambda s: len(s.verts), default=None)
+        if shape is None:
+            return None
+
+        # Material file first (authoritative); nif inline texture set fallback.
+        tex = self._material_textures(shape) or shape.textures
+        diffuse = tex.get("Diffuse")
+        if not diffuse:
+            return None
+        return {
+            "diffuse": _norm_tex(diffuse),
+            "normal": _norm_tex(tex["Normal"]) if tex.get("Normal") else None,
+            "specular": _norm_tex(tex["Specular"]) if tex.get("Specular") else None,
+        }
+
+    def get(self, race_edid: str, sex: Sex) -> Optional[dict]:
+        key = (race_edid, sex)
+        if key in self._cache:
+            return self._cache[key]
+        result = None
+        for hp in self.pools.pool(race_edid, sex, "Face"):
+            modl = hp.get_subrecord("MODL")
+            if modl is None:
+                continue
+            model_rel = modl.data.rstrip(b"\x00").decode("cp1252", "replace")
+            result = self._read_nif_textures(model_rel)
+            if result is not None:
+                break
+        self._cache[key] = result
+        return result

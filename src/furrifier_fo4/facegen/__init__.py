@@ -1,0 +1,274 @@
+"""FO4 self-baked FaceGen.
+
+For each furrified NPC override in the patch, bake the per-NPC
+**FaceCustomization** texture set under
+`textures\\Actors\\Character\\FaceCustomization\\<defining-plugin>\\<formid>_*.dds`:
+
+  - `_d`   diffuse: the race's base head diffuse with the NPC's tint layers
+           composited in using their real FO4 blend ops (`composite.py`), the
+           part the CK flattens to plain alpha-over.
+  - `_msn` normal, `_s` specular: a straight copy of the base head's maps. FFO
+           tints only the diffuse — no race composites layers onto normal/spec —
+           so these pass through unchanged (the compositor could blend them too
+           if a race ever used that tint capability).
+
+FO4 also runtime-generates the head geometry when a facegeom nif is missing,
+but doing so for a whole cell of furrified NPCs at once spikes load-time
+processing and causes glitches — so we also bake the facegeom nif per NPC
+(`assemble.py`) under `meshes\\...\\FaceGeom\\<defining-plugin>\\<formid>.nif`,
+moving that cost to build time.
+"""
+
+from __future__ import annotations
+
+import logging
+import struct
+from pathlib import Path
+from typing import Optional
+
+from ..extract import FactExtractor
+from ..headparts import HeadpartPools
+from ..models import Sex
+from .assets import AssetResolver
+from .basehead import BaseHeadTextures
+from .extract import RaceTintTemplates, npc_tint_layers
+
+log = logging.getLogger(__name__)
+
+_FACECUST_DIR = "textures/Actors/Character/FaceCustomization"
+_FACEGEOM_DIR = "meshes/Actors/Character/FaceGenData/FaceGeom"
+
+
+def base_plugin_for(npc, patch) -> str:
+    """Plugin filename that 'owns' the NPC for FaceGenData pathing — the
+    plugin that DEFINED the record, not the override that wins.
+
+    The FO4 engine looks for facegen under the base record's plugin, so a
+    furrified vanilla NPC's textures must live under `Fallout4.esm\\` (or the
+    DLC esm), even though our patch is the winning override. Records the
+    furrifier creates itself (file_index past the master list) get the patch
+    name.
+    """
+    idx = npc.form_id.file_index
+    masters = patch.header.masters
+    if idx < len(masters):
+        return masters[idx]
+    return patch.file_path.name if patch.file_path else "patch.esp"
+
+
+def build_facegen_for_patch(patch, plugin_set, data_dir,
+                            output_dir: Optional[str] = None,
+                            limit: Optional[int] = None,
+                            output_size: Optional[int] = None,
+                            only_npc: Optional[set] = None,
+                            make_png: bool = False,
+                            bake_aux: bool = True,
+                            bake_nif: bool = True,
+                            exclude_hdpt_types: tuple = (),
+                            extractor=None,
+                            templates=None,
+                            pools=None,
+                            races_by_edid=None,
+                            resolver=None,
+                            base_heads=None,
+                            workers: Optional[int] = None,
+                            throttle: bool = False) -> dict:
+    """Bake the FaceCustomization texture set + facegeom nif for every NPC
+    override in `patch`.
+
+    `exclude_hdpt_types` drops head parts of those PNAM type codes from the
+    assembled nif (e.g. {7} Meatcaps for the preview — the bloody neck cap the
+    full bake keeps for decapitation).
+
+    `output_dir` defaults to `data_dir`. `only_npc` restricts to a set of
+    EditorIDs. `make_png` also writes a PNG beside each DDS for eyeballing.
+    `bake_aux` also copies the base head normal (_msn) and specular (_s).
+    `bake_nif` assembles the facegeom nif (else texture-only).
+
+    The plugin-set-scoped indexes (`extractor`, `templates`, `pools`,
+    `races_by_edid`) and the `resolver` / `base_heads` may be supplied
+    pre-built — the preview session builds them once and reuses them across
+    bakes (the AssetResolver's BA2 scan and the tint/head indexes are the
+    expensive part). Any left as None are built here; a resolver built here is
+    closed on return, an injected one is left open for its owner to manage.
+
+    `workers` sets the bake parallelism (default: auto — min(16, cpu-1), or 1
+    when `throttle`). The parent resolves each NPC's job serially (cheap plugin-
+    set lookups) and a `ProcessPoolExecutor` bakes them; `throttle` runs a single
+    BELOW_NORMAL worker so the box stays usable. Returns a stats dict.
+    """
+    from .headparts_resolve import resolve_headparts
+
+    out_root = Path(output_dir) if output_dir else Path(data_dir)
+    facecust_root = out_root.joinpath(*_FACECUST_DIR.split("/"))
+    facegeom_root = out_root.joinpath(*_FACEGEOM_DIR.split("/"))
+    # Output dirs are per-base-plugin (the engine looks under the defining
+    # plugin), cached so we don't rebuild the Path per NPC.
+    _tex_dirs: dict[str, Path] = {}
+    _nif_dirs: dict[str, Path] = {}
+
+    def out_dir_for(plugin: str) -> Path:
+        d = _tex_dirs.get(plugin)
+        if d is None:
+            d = facecust_root / plugin
+            _tex_dirs[plugin] = d
+        return d
+
+    def nif_dir_for(plugin: str) -> Path:
+        d = _nif_dirs.get(plugin)
+        if d is None:
+            d = facegeom_root / plugin
+            _nif_dirs[plugin] = d
+        return d
+
+    if extractor is None:
+        extractor = FactExtractor(plugin_set)
+    if templates is None:
+        templates = RaceTintTemplates(plugin_set)
+    if pools is None:
+        pools = HeadpartPools(plugin_set)
+    if races_by_edid is None:
+        races_by_edid = {}
+        for pl in plugin_set:
+            for r in pl.get_records_by_signature("RACE"):
+                if r.editor_id:
+                    races_by_edid[r.editor_id] = r
+
+    # CLFM FormID -> hair-color palette scale (CNAM is a float 0..1, the
+    # greyscale-to-palette lookup position). An NPC's HCLF points at one of
+    # these; the assembled hair shape uses it to colour the grayscale hair.
+    clfm_scale: dict = {}
+    for pl in plugin_set:
+        for c in pl.get_records_by_signature("CLFM"):
+            cnam = c.get_subrecord("CNAM")
+            if cnam is not None and cnam.size >= 4:
+                clfm_scale[c.normalize_form_id(c.form_id).value] = \
+                    struct.unpack("<f", cnam.data[:4])[0]
+
+    def hair_scale_for(npc):
+        hclf = npc.get_subrecord("HCLF")
+        if hclf is None or hclf.size < 4:
+            return None
+        fid = npc.normalize_form_id(hclf.get_form_id()).value
+        return clfm_scale.get(fid)
+
+    stats = {"baked": 0, "aux": 0, "nif": 0, "nif_failed": 0,
+             "no_base": 0, "no_layers": 0, "skipped": 0}
+
+    own_resolver = resolver is None
+    if own_resolver:
+        resolver = AssetResolver.for_data_dir(Path(data_dir))
+    if base_heads is None:
+        base_heads = BaseHeadTextures(pools, resolver)
+
+    def _resolve_info(npc):
+        """Parent-side resolution: turn one patch NPC into a fully picklable
+        bake job (resolved base textures, tint layers, head-part entries, output
+        paths, flags), or a skip-reason key. All plugin-set-dependent work
+        happens here so the bake workers never touch the plugin set."""
+        race_edid = extractor.race_of(npc)
+        if not race_edid:
+            return None, "skipped"
+        sex = Sex.FEMALE if extractor.is_female(npc) else Sex.MALE
+        base = base_heads.get(race_edid, sex)
+        if base is None:
+            return None, "no_base"
+        layers = npc_tint_layers(npc, race_edid, sex, templates)
+        if not layers:
+            return None, "no_layers"
+        form_id = f"{npc.form_id.value & 0xFFFFFF:08X}"
+        plugin = base_plugin_for(npc, patch)
+        info = {
+            "edid": npc.editor_id or form_id, "form_id": form_id,
+            "plugin": plugin, "base": base, "layers": layers,
+            "out_dir": str(out_dir_for(plugin)), "output_size": output_size,
+            "make_png": make_png, "bake_aux": bake_aux, "bake_nif": bake_nif,
+            "headparts": None, "nif_path": None, "hair_palette_scale": None,
+        }
+        if bake_nif:
+            headparts = resolve_headparts(
+                npc, races_by_edid.get(race_edid), plugin_set,
+                sex == Sex.FEMALE)
+            if exclude_hdpt_types:
+                headparts = [h for h in headparts
+                             if h.get("hdpt_type") not in exclude_hdpt_types]
+            info["headparts"] = headparts
+            info["nif_path"] = str(nif_dir_for(plugin) / f"{form_id}.nif")
+            info["hair_palette_scale"] = hair_scale_for(npc)
+        return info, None
+
+    from ._worker import (_WorkItem, bake_from_info, pick_worker_count)
+
+    try:
+        # Resolve phase (serial, parent): cheap record/path lookups.
+        work = []
+        for npc in patch.get_records_by_signature("NPC_"):
+            if only_npc is not None and (npc.editor_id or "") not in only_npc:
+                continue
+            info, skip = _resolve_info(npc)
+            if skip is not None:
+                stats[skip] += 1
+                continue
+            work.append(info)
+            if limit is not None and len(work) >= limit:
+                break
+
+        # Ensure every per-plugin output dir exists before any worker writes.
+        for d in set(_tex_dirs.values()) | set(_nif_dirs.values()):
+            d.mkdir(parents=True, exist_ok=True)
+
+        # Bake phase: serial when a single worker (or trivial work), else pooled.
+        n_workers = pick_worker_count(throttle) if workers is None \
+            else max(1, workers)
+        if n_workers <= 1 or len(work) <= 1:
+            for info in work:
+                _accumulate(stats, bake_from_info(info, resolver))
+        else:
+            log.info("facegen: baking %d NPCs across %d workers%s",
+                     len(work), n_workers, " (throttled)" if throttle else "")
+            _bake_pooled([_WorkItem(i["edid"], i) for i in work],
+                         n_workers, throttle, str(data_dir), stats)
+    finally:
+        if own_resolver:
+            resolver.close()
+    log.info("facegen: %d FaceCustomization diffuse (+%d aux), %d nifs "
+             "(%d failed); %d no-base, %d no-layers, %d skipped",
+             stats["baked"], stats["aux"], stats["nif"], stats["nif_failed"],
+             stats["no_base"], stats["no_layers"], stats["skipped"])
+    return stats
+
+
+def _accumulate(stats: dict, r) -> None:
+    """Fold one `_Result` into the running stats dict."""
+    stats["baked"] += r.baked
+    stats["aux"] += r.aux
+    stats["nif"] += r.nif
+    stats["nif_failed"] += r.nif_failed
+    stats["skipped"] += r.skipped
+
+
+def _bake_pooled(items, n_workers: int, throttle: bool, data_dir: str,
+                 stats: dict) -> None:
+    """Bake `items` across `n_workers` spawned processes, forwarding worker logs
+    to the parent's handlers (file / stream / GUI pane) via a QueueListener so
+    progress is visible everywhere the serial path's logs were."""
+    import logging.handlers
+    import multiprocessing as mp
+    from concurrent.futures import ProcessPoolExecutor
+    from ._worker import _worker_init, _bake_one
+
+    ctx = mp.get_context("spawn")
+    log_queue = ctx.Queue()
+    level = logging.getLogger().getEffectiveLevel()
+    listener = logging.handlers.QueueListener(
+        log_queue, *logging.getLogger().handlers, respect_handler_level=True)
+    listener.start()
+    try:
+        with ProcessPoolExecutor(
+                max_workers=n_workers, mp_context=ctx,
+                initializer=_worker_init,
+                initargs=(data_dir, throttle, log_queue, level)) as ex:
+            for r in ex.map(_bake_one, items, chunksize=1):
+                _accumulate(stats, r)
+    finally:
+        listener.stop()

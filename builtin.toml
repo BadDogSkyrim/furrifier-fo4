@@ -1,0 +1,90 @@
+# Built-in NPC classification for Fallout 4, translated faithfully from
+# BadDog"s FFO Furrifier (BDAssetLoaderFO4.pas GetNPCClass). These are
+# base-game facts: which class an NPC belongs to. Schemes assign furry
+# races to classes; they rarely need to touch this file.
+#
+# Rows are [CLASS, FIELD, PATTERN], evaluated top-to-bottom, first match
+# wins. FIELD is RACE / FACTION / EDITORID / NAME. "*" wildcards the
+# start and/or end. Matching is case-insensitive. Only Human/Ghoul-race
+# NPCs are ever classified (the candidate gate); the trailing HumanRace
+# rows act as the default class.
+
+class_match = [
+    ["CLASS_GHOUL", "RACE", "GhoulRace"],
+    ["CLASS_ATOM", "FACTION", "ChildrenOfAtomFaction"],
+    ["CLASS_BOS", "FACTION", "BrotherhoodofSteelFaction"],
+    ["CLASS_DISCIPLES", "EDITORID", "*GangDisciple*"],
+    ["CLASS_DISCIPLES", "FACTION", "DLC04GangDisciplesFaction"],
+    ["CLASS_FARHARBOR", "EDITORID", "*FarHarbor*"],
+    ["CLASS_FARHARBOR", "FACTION", "DLC03SettlementFarHarborFaction"],
+    ["CLASS_FARHARBOR", "FACTION", "DLC03WorkshopDialogueFaction"],
+    ["CLASS_GUNNER", "EDITORID", "*Gunner*"],
+    ["CLASS_INSTITUTE", "EDITORID", "*Institute*"],
+    ["CLASS_INSTITUTE", "FACTION", "InstituteFaction"],
+    ["CLASS_MINUTEMEN", "EDITORID", "*Minutemen*"],
+    ["CLASS_MINUTEMEN", "FACTION", "MinutemenFaction"],
+    ["CLASS_OPERATOR", "EDITORID", "*GangOperator*"],
+    ["CLASS_OPERATOR", "FACTION", "DLC04GangOperatorsFaction"],
+    ["CLASS_PACK", "EDITORID", "*GangPack*"],
+    ["CLASS_PACK", "FACTION", "DLC04GangPackFaction"],
+    ["CLASS_RAIDER", "EDITORID", "*raider*"],
+    ["CLASS_RAIDER", "FACTION", "RaiderFaction"],
+    ["CLASS_RAIDER", "FACTION", "TheForgedFaction"],
+    ["CLASS_RR", "FACTION", "RailroadFaction"],
+    ["CLASS_SETTLER", "NAME", "Settler"],
+    ["CLASS_TRAPPER", "FACTION", "DLC03TrapperFaction"],
+    ["CLASS_SETTLER", "RACE", "HumanRace"],
+]
+
+# Families auto-derived from FO4 RELA (Relationship) records, keeping
+# ParentChild / Spouse / Siblings / GrandparentGrandchild associations
+# (BossEmployee / BusinessPartners dropped). Connected relatives share a
+# race; the first (alphabetical) member is the leader.
+families = [
+    ["AbigailFinch", "AbrahamFinch", "DanielFinch", "JakeFinch"],
+    ["AlanBinet", "LiamBinet"],
+    ["AnnCodman", "ClarenceCodman"],
+    ["ArturoRodriguez", "NinaRodriguez"],
+    ["BlakeAbernathy", "ConnieAbernathy", "LucyAbernathy"],
+    ["BrianFitzgerald", "MS17PennyFitzgerald"],
+    ["Cathy", "John"],
+    ["Colette", "HenryCooke"],
+    ["CompanionPiper", "Natalie"],
+    ["DarcyPembroke", "PaulPembroke", "PetePembroke"],
+    ["Deb", "Kay", "Meg"],
+    ["DLC03KasumiNakano", "DLC03MrNakano", "DLC03MrsNakano"],
+    ["Eustace", "Hawthorne"],
+    ["Farm01FemaleEvenToned", "Farm01MaleBoston"],
+    ["Farm02FemaleBoston", "Farm02MaleChild", "Farm02MaleRough"],
+    ["Farm03FemaleEvenToned", "Farm03FemaleRough"],
+    ["Farm04MaleEvenToned", "Farm04MaleOld"],
+    ["Farm05MaleChild", "Farm05MaleRough"],
+    ["Farm06FemaleOld", "Farm06MaleOld"],
+    ["FFDiamondCity12Riley", "FFDiamondCity12Kyle"], # Brothers, no relationship record
+    ["JaneyWarwick", "JuneWarwick", "RogerWarwick", "WallyWarwick"],
+    ["JoeSavoldi", "TonySavoldi"],
+    ["JunLong", "MarcyLong"],
+    ["Kellogg", "MQ203MemoryA_Mom"], # Mother, no relationship record
+    ["MalcolmLatimer", "NelsonLatimer"],
+    ["Trudy", "Patrick"], # Mother/child, no relationship record
+    ["V81_AlexisCombes", "V81_ErinCombes", "V81_HoltCombes"],
+    ["V81_AustinEngilll", "V81_PriscillaPenske"],
+    ["V81_BobbyDeLuca", "V81_TinaDeLuca"],
+    ["V81_MariaSummerset", "V81_MarkSummerset"],
+    ["VadimBobrov", "YefimBobrov"],
+    # ["Fahrenheit", "Hancock"], Hancock is a ghoul, she's not
+]
+
+aliases = [
+    ["Kellogg", "MQ203MemoryA_Kellogg", "DN088_Kellogg", "MQ101Kellogg"],
+    ["MS05_SgtLee", "MS05_SgtLeeCorpse"],
+    ["CompanionDeacon", "DeaconAtBunkerHill", "DeaconAtDiamondCity", "DeaconAtMemoryDen", "DeaconAtGoodneighbor"],
+    ["EmogeneCabotOld", "EmogeneCabotYoung"],
+    ["DN138Sully", "DN138SullyAsRaider"],
+    ["shaun", "ShaunChild", "MQ203MemoryH_Shaun", "ShaunChildHologram"],
+    ["_hod_john", "_hod_john_power_armor"],
+    ["_hod_fred", "_hod_fred_dead", "_hod_fred_sicker"],
+    ["_hod_arlen", "_hod_arlen_power_armor"],
+    ["_hod_katrina", "_hod_dead_lookalike_katrina"],
+    ["SS2_Jake", "SS2C2_Jake_Injured"],
+]

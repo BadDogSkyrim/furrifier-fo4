@@ -1,0 +1,199 @@
+# FFO test scheme: BadDog's FFO Furrifier race probabilities, filtered to
+# the furry races present in this load order (FurryFallout.esp). Absent
+# race packs (Dinosaur, Shark, K9, ProtoArgonian, Deathclaw) are dropped.
+#
+# Weights are relative within each class (not percentages).
+
+[[class_probabilities]]
+class = "CLASS_MINUTEMEN"
+races = [
+  ["FFOLykaiosRace", 30],
+  ["FFOFoxRace", 20],
+  ["FFOHyenaRace", 10],
+  ["FFOLionRace", 30],
+  ["FFOTigerRace", 40],
+  ["FFOCheetahRace", 20],
+  ["FFOHorseRace", 40],
+  ["FFODeerRace", 20],
+]
+
+[[class_probabilities]]
+class = "CLASS_BOS"
+races = [
+  ["FFOLykaiosRace", 40],
+  ["FFOFoxRace", 20],
+  ["FFOHyenaRace", 20],
+  ["FFOLionRace", 20],
+  ["FFOTigerRace", 20],
+  ["FFOCheetahRace", 20],
+  ["FFOHorseRace", 30],
+  ["FFODeerRace", 10],
+]
+
+[[class_probabilities]]
+class = "CLASS_RR"
+races = [
+  ["FFOLykaiosRace", 20],
+  ["FFOFoxRace", 20],
+  ["FFOHyenaRace", 10],
+  ["FFOLionRace", 30],
+  ["FFOTigerRace", 20],
+  ["FFOCheetahRace", 20],
+  ["FFOHorseRace", 60],
+  ["FFODeerRace", 30],
+]
+
+[[class_probabilities]]
+class = "CLASS_GUNNER"
+races = [
+  ["FFOLykaiosRace", 20],
+  ["FFOFoxRace", 20],
+  ["FFOHyenaRace", 20],
+  ["FFOLionRace", 60],
+  ["FFOTigerRace", 20],
+  ["FFOCheetahRace", 20],
+  ["FFOHorseRace", 10],
+  ["FFODeerRace", 5],
+]
+
+[[class_probabilities]]
+class = "CLASS_DISCIPLES"
+races = [
+  ["FFOLykaiosRace", 20],
+  ["FFOFoxRace", 20],
+  ["FFOHyenaRace", 100],
+  ["FFOLionRace", 20],
+  ["FFOTigerRace", 20],
+  ["FFOCheetahRace", 20],
+  ["FFOHorseRace", 8],
+  ["FFODeerRace", 4],
+]
+
+[[class_probabilities]]
+class = "CLASS_OPERATOR"
+races = [
+  ["FFOLykaiosRace", 20],
+  ["FFOFoxRace", 100],
+  ["FFOHyenaRace", 30],
+  ["FFOLionRace", 10],
+  ["FFOTigerRace", 10],
+  ["FFOCheetahRace", 10],
+  ["FFOHorseRace", 5],
+  ["FFODeerRace", 5],
+]
+
+[[class_probabilities]]
+class = "CLASS_PACK"
+races = [
+  ["FFOLykaiosRace", 20],
+  ["FFOFoxRace", 20],
+  ["FFOHyenaRace", 20],
+  ["FFOLionRace", 20],
+  ["FFOTigerRace", 20],
+  ["FFOCheetahRace", 20],
+  ["FFOHorseRace", 5],
+]
+
+[[class_probabilities]]
+class = "CLASS_RAIDER"
+races = [
+  ["FFOLykaiosRace", 30],
+  ["FFOFoxRace", 30],
+  ["FFOHyenaRace", 50],
+  ["FFOLionRace", 30],
+  ["FFOTigerRace", 30],
+  ["FFOCheetahRace", 30],
+  ["FFOHorseRace", 16],
+  ["FFODeerRace", 8],
+]
+
+[[class_probabilities]]
+class = "CLASS_TRAPPER"
+races = [
+  ["FFOOtterRace", 700],
+  ["FFOLykaiosRace", 10],
+  ["FFOFoxRace", 10],
+  ["FFOHyenaRace", 10],
+  ["FFOLionRace", 10],
+  ["FFOTigerRace", 10],
+  ["FFOCheetahRace", 10],
+  ["FFOHorseRace", 5],
+  ["FFODeerRace", 5],
+]
+
+[[class_probabilities]]
+class = "CLASS_INSTITUTE"
+races = [
+  ["FFOLykaiosRace", 30],
+  ["FFOFoxRace", 20],
+  ["FFOHyenaRace", 10],
+  ["FFOLionRace", 30],
+  ["FFOTigerRace", 40],
+  ["FFOCheetahRace", 40],
+  ["FFOHorseRace", 50],
+  ["FFODeerRace", 50],
+]
+
+[[class_probabilities]]
+class = "CLASS_FARHARBOR"
+races = [
+  ["FFOLykaiosRace", 5],
+  ["FFOFoxRace", 5],
+  ["FFOHyenaRace", 5],
+  ["FFOLionRace", 5],
+  ["FFOTigerRace", 5],
+  ["FFOCheetahRace", 5],
+  ["FFOHorseRace", 5],
+  ["FFODeerRace", 5],
+  ["FFOOtterRace", 500],
+]
+
+[[class_probabilities]]
+class = "CLASS_ATOM"
+races = [
+  ["FFOLykaiosRace", 5],
+  ["FFOFoxRace", 5],
+  ["FFOHyenaRace", 5],
+  ["FFOLionRace", 5],
+  ["FFOTigerRace", 5],
+  ["FFOCheetahRace", 5],
+  ["FFOHorseRace", 5],
+  ["FFODeerRace", 5],
+  ["FFOSnekdogRace", 40],
+]
+
+[[class_probabilities]]
+class = "CLASS_SETTLER"
+races = [
+  ["FFOLykaiosRace", 20],
+  ["FFOFoxRace", 20],
+  ["FFOHyenaRace", 20],
+  ["FFOLionRace", 20],
+  ["FFOTigerRace", 20],
+  ["FFOCheetahRace", 20],
+  ["FFOHorseRace", 30],
+  ["FFODeerRace", 30],
+  ["FFOOtterRace", 6],
+]
+
+# Ghouls become Snekdogs. Triggers the G4 ghoul-armor pass: any armor addon
+# (ARMA) listing GhoulRace/GhoulChildRace gets FFOSnekdogRace added so it fits.
+[[class_probabilities]]
+class = "CLASS_GHOUL"
+races = [
+  ["FFOSnekdogRace", 100],
+]
+
+[npc_assignments]
+"MamaMurphy" = "FFOLionRace"
+"DLC04Mason" = "FFOHorseRace"
+"Cricket" = "FFOCheetahRace"
+"CompanionCait" = "FFOFoxRace"
+"BoSPaladinDanse" = "FFOLykaiosRace"
+"CompanionDeacon" = "FFOHorseRace"
+"CompanionMacCready" = "FFOCheetahRace"
+"CompanionPiper" = "FFODeerRace"
+"CompanionX6-88" = "FFOTigerRace"
+"DLC04Gage" = "FFOHyenaRace"
+"PrestonGarvey" = "FFOLionRace"
+"DLC03_CompanionOldLongfellow" = "FFOOtterRace"
