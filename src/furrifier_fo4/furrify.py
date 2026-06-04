@@ -105,7 +105,7 @@ _HEADPART_PICKS = (
 def furrify_npc(patch: Plugin, npc: Record, furry_race: Record,
                 race_edid: str = None, sex=None, signature: str = None,
                 headpart_pools=None, race_tints=None,
-                customization=None) -> Record:
+                customization=None, breed_name: str = None) -> Record:
     """Create a furrified override of `npc` in `patch`, assigned to
     `furry_race`. Returns the new override record.
 
@@ -122,19 +122,37 @@ def furrify_npc(patch: Plugin, npc: Record, furry_race: Record,
     ov = patch.copy_record(npc, npc.plugin)
     apply_furry(patch, ov, furry_race, race_edid=race_edid, sex=sex,
                 signature=signature, headpart_pools=headpart_pools,
-                race_tints=race_tints, customization=customization)
+                race_tints=race_tints, customization=customization,
+                breed_name=breed_name)
     return ov
 
 
 def apply_furry(patch: Plugin, ov: Record, furry_race: Record,
                 race_edid: str = None, sex=None, signature: str = None,
                 headpart_pools=None, race_tints=None,
-                customization=None) -> Record:
+                customization=None, breed_name: str = None) -> Record:
     """Apply the furry appearance (race + skin + per-NPC headparts/tints/weight)
     to an EXISTING patch record `ov`, in place. `furrify_npc` calls this after
     copying a base; variant-expansion calls it on a freshly-minted variant copy
-    (so the same furrification runs without producing another override)."""
+    (so the same furrification runs without producing another override).
+
+    `race_edid` is the ENGINE race (parent) — used for headpart pools and tint
+    options. A breed (a visual flavor of that race) is either given explicitly
+    via `breed_name` (the scheme targeted a breed) or rolled from the race's
+    distribution on `signature`; the breed name then keys the appearance
+    customization (headpart whitelist, colors, weight), falling back to the
+    parent race. So each variant of a clone-army owner can roll a different
+    breed."""
     patch.add_recursive_masters(furry_race.plugin)
+
+    # Resolve the breed: explicit (scheme targeted a breed) or rolled from the
+    # parent race's breed distribution. cust_key drives the customization
+    # lookups; the engine race (race_edid) drives pools + tint options.
+    if (breed_name is None and customization is not None and race_edid
+            and signature):
+        rolled = customization.roll_breed(signature, race_edid)
+        breed_name = rolled.name if rolled is not None else None
+    cust_key = breed_name or race_edid
 
     # 1. Clean vanilla appearance.
     for sig in _CLEAR_SIGS:
@@ -161,7 +179,7 @@ def apply_furry(patch: Plugin, ov: Record, furry_race: Record,
     if (headpart_pools is not None and race_edid
             and sex is not None and signature):
         for type_name, seed, hp_key in _HEADPART_PICKS:
-            rule = (customization.headpart_rule(race_edid, sex, hp_key)
+            rule = (customization.headpart_rule(cust_key, sex, hp_key)
                     if customization is not None else None)
             if rule is not None and rule.probability < 1.0:
                 if hash_string(signature, seed + 1, 100) >= rule.probability * 100:
@@ -180,7 +198,7 @@ def apply_furry(patch: Plugin, ov: Record, furry_race: Record,
     if (race_tints is not None and race_edid
             and sex is not None and signature):
         from .tints import apply_tints
-        scheme = (customization.color_scheme_for(race_edid)
+        scheme = (customization.color_scheme_for(cust_key)
                   if customization is not None else None)
         cats = (customization.categories_for(race_edid)
                 if customization is not None else None)
@@ -191,7 +209,7 @@ def apply_furry(patch: Plugin, ov: Record, furry_race: Record,
     # hashed on signature so NPCs vary within the band.
     if (customization is not None and race_edid and sex is not None
             and signature):
-        ranges = customization.weight_range(race_edid, sex)
+        ranges = customization.weight_range(cust_key, sex)
         if ranges is not None:
             _apply_weight(ov, ranges, signature)
 

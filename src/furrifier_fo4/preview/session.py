@@ -308,24 +308,34 @@ class PreviewSession:
             race_name = self.resolved_race(target)
             if race_name is None:
                 return None
+            # Resolve + roll the breed (a visual flavor of the engine race) so
+            # the preview shows the actual breed an NPC would spawn with; the
+            # displayed race name becomes the breed when one applies.
+            parent_race, breed = self.cust.resolve_race_or_breed(race_name)
+            if breed is None:
+                breed = self.cust.roll_breed(signature, parent_race)
+            breed_name = breed.name if breed else None
+            race_name = breed_name or parent_race
             is_child = is_child_npc(self.extractor, target)
-            furry_race = self.races.resolve(race_name, is_child)
+            furry_race = self.races.resolve(parent_race, is_child)
             if furry_race is None:
                 return None
             sex = Sex.FEMALE if self.extractor.is_female(target) else Sex.MALE
             if minted:
-                apply_furry(patch, target, furry_race, race_edid=race_name,
+                apply_furry(patch, target, furry_race, race_edid=parent_race,
                             sex=sex, signature=signature,
                             headpart_pools=self.headpart_pools,
-                            race_tints=self.race_tints, customization=self.cust)
+                            race_tints=self.race_tints, customization=self.cust,
+                            breed_name=breed_name)
                 override = target
             else:
                 override = furrify_npc(patch, target, furry_race,
-                                       race_edid=race_name, sex=sex,
+                                       race_edid=parent_race, sex=sex,
                                        signature=signature,
                                        headpart_pools=self.headpart_pools,
                                        race_tints=self.race_tints,
-                                       customization=self.cust)
+                                       customization=self.cust,
+                                       breed_name=breed_name)
             display_edid = npc.editor_id or f"{objid:08X}"
 
         build_facegen_for_patch(patch, self.ps, str(self.data),

@@ -6,6 +6,27 @@
 # weight_range = [[thin lo,hi],[musc lo,hi],[fat lo,hi]] (0-100) remaps MWGT.
 # EYEBROWS/FACIAL_HAIR/etc = probability, or {probability=, headpart=[...]}.
 
+# Breeds: visual flavors of a parent race (engine RACE unchanged; a breed only
+# narrows the horns/colors/weight an NPC gets). When an NPC is furrified to a
+# parent race, ONE breed is rolled by these weights, deterministically per NPC;
+# if the weights for a parent sum < 1.0 the remainder is the breed-less base
+# race. `breed` must match a [[race_customization]] row (+ its color scheme);
+# `race` is the parent RACE EditorID. (Top-level key — must precede the first
+# table header below.)
+breeds = [
+  # Deer — every deer is one of these.
+  {breed = "DikdikBreed",    race = "FFODeerRace", probability = 0.10},
+  {breed = "ElkBreed",       race = "FFODeerRace", probability = 0.15},
+  {breed = "GazelleBreed",   race = "FFODeerRace", probability = 0.10},
+  {breed = "GoatBreed",      race = "FFODeerRace", probability = 0.10},
+  {breed = "MooseBreed",     race = "FFODeerRace", probability = 0.15},
+  {breed = "ReindeerBreed",  race = "FFODeerRace", probability = 0.20},
+  {breed = "WhiteTailBreed", race = "FFODeerRace", probability = 0.20},
+  # Fox — a few are fennecs.
+  {breed = "RedFoxBreed",    race = "FFOFoxRace",  probability = 0.90},
+  {breed = "FennecBreed",    race = "FFOFoxRace",  probability = 0.10},
+]
+
 # Tint categories (file-scoped). A category groups tint-layer (TTGP) names by
 # case-insensitive glob; a literal matches that exact layer. A color-scheme key
 # (or, with no scheme, these in order at a ~65% gate) resolves to a category ->
@@ -40,18 +61,7 @@ child_race = "FFOCheetahChildRace"
 # Cheetahs are lean: thin-leaning, low muscle, low fat.
 weight_range = [[40, 100], [0, 60], [0, 30]]
 
-####### Deer #######
-
-breeds = [
-  # All deer are one of these breeds.
-  {breed = "DikdikBreed", race = "BDDeerRace", probability = 0.1},
-  {breed = "Elk", race = "BDDeerRace", probability = 0.15},
-  {breed = "Gazelle", race = "BDDeerRace", probability = 0.1},
-  {breed = "Goat", race = "BDDeerRace", probability = 0.1},
-  {breed = "Moose", race = "BDDeerRace", probability = 0.15},
-  {breed = "Reindeer", race = "BDDeerRace", probability = 0.20},
-  {breed = "WhiteTailBreed", race = "BDDeerRace", probability = 0.20},
-]
+####### Deer #######  (breed distribution is the top-level `breeds` array above)
 
 [color_schemes.Dikdik]
 Skin_tone = [["FFOFurBrown", 0.9], ["FFOFurBrownD", 0.8], ["FFOFurBrownL", 0.8], ["FFOFurRedBrown", 0.4]]
@@ -169,13 +179,7 @@ EYEBROWS = 0.0
 FACIAL_HAIR = 0.0
 sex = "female"
 
-####### Foxes #######
-
-breeds = [
-  # A few foxes are fennecs.
-  {breed = "RedFoxBreed", race = "BDFoxRace", probability = 0.9},
-  {breed = "FennecBreed", race = "BDFoxRace", probability = 0.1},
-]
+####### Foxes #######  (breed distribution is the top-level `breeds` array above)
 
 [color_schemes.RedFox]
 Skin_tone = [["FFOFurOrange02", 0.9], ["FFOFurOrange02", 0.7], ["FFOFurOrange03", 0.9], ["FFOFurOrange03", 0.7], ["FFOFurOrange04", 0.9], ["FFOFurOrange04", 0.7], ["FFOFurOrange05", 0.9], ["FFOFurOrange07", 0.7], ]

@@ -22,7 +22,8 @@ import tomllib
 from pathlib import Path
 from typing import Optional
 
-from .models import Sex
+from .models import Breed, Sex
+from .util import hash_string
 
 log = logging.getLogger(__name__)
 
@@ -83,17 +84,91 @@ class Customization:
         # [tint_categories] block of the FILE that defines the race (file-scoped,
         # so categories don't bleed between race catalogs).
         self.tint_categories: dict[str, dict] = {}
+        # Breeds: visual flavors of a parent race (engine race unchanged; they
+        # narrow headpart/tint/weight picks). name -> Breed, and parent race ->
+        # [Breed] in definition order for the probability roll.
+        self.breeds: dict[str, Breed] = {}
+        self.breeds_by_parent: dict[str, list] = {}
 
 
     def child_race(self, race_edid: str) -> Optional[str]:
         return self.child_races.get(race_edid)
 
 
-    def color_scheme_for(self, race_edid: str) -> Optional[dict]:
-        """key -> ColorRule for a race's named scheme, or None (no scheme =
-        use the race's full palette). Keys are category-or-layer names."""
-        name = self.colors.get(race_edid)
-        return self.color_schemes.get(name) if name else None
+    def set_breed(self, name: str, parent_race_edid: str,
+                  probability: float = 0.0) -> None:
+        """Register a breed under its parent race. Probabilities for one parent
+        must sum to <= 1.0 (the remainder is the breed-less slice); an entry
+        that overflows is dropped with a warning rather than aborting the load."""
+        existing = sum(b.probability for b in
+                       self.breeds_by_parent.get(parent_race_edid, []))
+        if existing + probability > 1.0 + 1e-9:
+            log.warning("breeds for %s would exceed probability 1.0 "
+                        "(%.3f); dropping breed %r", parent_race_edid,
+                        existing + probability, name)
+            return
+        breed = Breed(name=name, parent_race_edid=parent_race_edid,
+                      probability=probability)
+        self.breeds[name] = breed
+        self.breeds_by_parent.setdefault(parent_race_edid, []).append(breed)
+
+    def resolve_race_or_breed(self, name: str):
+        """(parent_race_edid, Breed) if `name` is a registered breed, else
+        (name, None). Lets a scheme target a breed name directly."""
+        breed = self.breeds.get(name)
+        if breed is not None:
+            return breed.parent_race_edid, breed
+        return name, None
+
+    def roll_breed(self, signature: str, parent_race_edid: str):
+        """Deterministically pick a breed for `parent_race_edid`, hashed on
+        `signature`, or None if the roll lands in the breed-less slice (always
+        for a race with no breeds). Mirrors the Skyrim furrifier (seed 7919,
+        10000 buckets); probability-0 breeds are never auto-picked."""
+        breeds = self.breeds_by_parent.get(parent_race_edid)
+        if not breeds:
+            return None
+        # Buckets MUST equal hash_string's internal modulus (16000): a smaller
+        # modulus (e.g. 10000) reduces non-uniformly (h % 10000 double-counts
+        # [0,6000)), which skews the distribution toward the earlier breeds.
+        buckets = 16000
+        # This Pascal-port hash has weak avalanche, so prefix-shared signatures
+        # (variant edids `<owner>_F00`..`_F23`) would all roll the SAME breed —
+        # 24 identical-breed clones, defeating variant-expansion. Mixing a
+        # forward and reversed hash moves the varying suffix to the front and
+        # de-clusters them, while diverse real edids stay well distributed.
+        roll = (hash_string(signature, 7919, buckets)
+                + hash_string(signature[::-1], 7919, buckets)) % buckets
+        cumulative = 0
+        for breed in breeds:
+            width = int(round(breed.probability * buckets))
+            if width == 0:
+                continue
+            if roll < cumulative + width:
+                return breed
+            cumulative += width
+        return None
+
+    def _lookup_races(self, race_or_breed: str):
+        """Race keys to try for a customization lookup, in breed -> parent ->
+        '*' order (a bare race yields race -> '*')."""
+        breed = self.breeds.get(race_or_breed)
+        if breed is not None:
+            yield breed.name
+            yield breed.parent_race_edid
+        else:
+            yield race_or_breed
+        yield '*'
+
+    def color_scheme_for(self, race_or_breed: str) -> Optional[dict]:
+        """key -> ColorRule for a race-or-breed's named scheme, or None (no
+        scheme = use the race's full palette). Falls back breed -> parent -> '*';
+        keys are category-or-layer names."""
+        for race in self._lookup_races(race_or_breed):
+            name = self.colors.get(race)
+            if name:
+                return self.color_schemes.get(name)
+        return None
 
     def categories_for(self, race_edid: str) -> dict:
         """{category_key_lower: [patterns]} for the race's file, or {} if its
@@ -103,23 +178,27 @@ class Customization:
         return self.tint_categories.get(race_edid, {})
 
 
-    def weight_range(self, race_edid: str, sex: Sex):
-        """Return [(lo,hi)*3] for thin/musc/fat, or None (no remap)."""
-        for key in ((race_edid, _sex_token(sex)), (race_edid, None)):
-            r = self.weight_ranges.get(key)
-            if r is not None:
-                return r
+    def weight_range(self, race_or_breed: str, sex: Sex):
+        """Return [(lo,hi)*3] for thin/musc/fat, or None (no remap). Falls back
+        breed -> parent -> '*'."""
+        for race in self._lookup_races(race_or_breed):
+            for sx in (_sex_token(sex), None):
+                r = self.weight_ranges.get((race, sx))
+                if r is not None:
+                    return r
         return None
 
 
-    def headpart_rule(self, race_edid: str, sex: Sex,
+    def headpart_rule(self, race_or_breed: str, sex: Sex,
                       hp_key: str) -> HeadpartRule:
-        """Rule for a headpart type; default (prob 1.0, no whitelist)."""
-        for key in ((race_edid, _sex_token(sex), hp_key),
-                    (race_edid, None, hp_key)):
-            r = self.headpart_rules.get(key)
-            if r is not None:
-                return r
+        """Rule for a headpart type; default (prob 1.0, no whitelist). Falls
+        back breed -> parent -> '*', so a breed that's silent on a type inherits
+        its parent's rule."""
+        for race in self._lookup_races(race_or_breed):
+            for sx in (_sex_token(sex), None):
+                r = self.headpart_rules.get((race, sx, hp_key))
+                if r is not None:
+                    return r
         return HeadpartRule()
 
 
@@ -174,6 +253,14 @@ def load_customization(races_dir: Path) -> Customization:
         for name, block in data.get('color_schemes', {}).items():
             cust.color_schemes[name] = _parse_color_scheme(block, name,
                                                            toml_path.name)
+        for entry in data.get('breeds', []):
+            breed = entry.get('breed')
+            parent = entry.get('race')
+            if not breed or not parent:
+                log.warning("%s: breed entry missing 'breed' or 'race': %r",
+                            toml_path.name, entry)
+                continue
+            cust.set_breed(breed, parent, float(entry.get('probability', 0.0)))
     return cust
 
 

@@ -172,26 +172,31 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
         if race_name in NON_FURRY_TARGETS:
             stats['left_human'] += 1
             return False
+        # A scheme may target a breed name directly (-> parent race + that
+        # breed); otherwise the parent race is `race_name` and apply_furry rolls
+        # a breed from its distribution.
+        parent_race, breed = cust.resolve_race_or_breed(race_name)
         is_child = is_child_npc(extractor, npc)
-        furry_race = races.resolve(race_name, is_child)
+        furry_race = races.resolve(parent_race, is_child)
         if furry_race is None:
             stats['no_child_race'] += 1
             return False
         # Track ghoul->furry mappings so the armor pass can fit ghoul gear.
         if facts.race in ('GhoulRace', 'GhoulChildRace'):
-            ghoul_targets[facts.race] = race_name
+            ghoul_targets[facts.race] = parent_race
         # Headparts are picked from the ADULT race's pools (the engine race),
         # keyed on the NPC's appearance signature; sex from ACBS.
         from .models import Sex
         sex = Sex.FEMALE if extractor.is_female(npc) else Sex.MALE
         furrify_npc(patch, npc, furry_race,
-                    race_edid=race_name, sex=sex,
+                    race_edid=parent_race, sex=sex,
                     signature=scheme.signature_for(npc.editor_id or ''),
                     headpart_pools=headpart_pools, race_tints=race_tints,
-                    customization=cust)
+                    customization=cust,
+                    breed_name=(breed.name if breed else None))
         stats['furrified'] += 1
-        stats['race_counts'][race_name] = \
-            stats['race_counts'].get(race_name, 0) + 1
+        stats['race_counts'][parent_race] = \
+            stats['race_counts'].get(parent_race, 0) + 1
         return True
 
     def furrify_variant(record, signature) -> bool:
@@ -202,20 +207,22 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
         race_name = scheme.resolve_race(facts, facts_for)
         if race_name is None or race_name in NON_FURRY_TARGETS:
             return False
+        parent_race, breed = cust.resolve_race_or_breed(race_name)
         is_child = is_child_npc(extractor, record)
-        furry_race = races.resolve(race_name, is_child)
+        furry_race = races.resolve(parent_race, is_child)
         if furry_race is None:
             return False
         if facts.race in ('GhoulRace', 'GhoulChildRace'):
-            ghoul_targets[facts.race] = race_name
+            ghoul_targets[facts.race] = parent_race
         from .models import Sex
         sex = Sex.FEMALE if extractor.is_female(record) else Sex.MALE
-        apply_furry(patch, record, furry_race, race_edid=race_name, sex=sex,
+        apply_furry(patch, record, furry_race, race_edid=parent_race, sex=sex,
                     signature=signature, headpart_pools=headpart_pools,
-                    race_tints=race_tints, customization=cust)
+                    race_tints=race_tints, customization=cust,
+                    breed_name=(breed.name if breed else None))
         stats['furrified'] += 1
-        stats['race_counts'][race_name] = \
-            stats['race_counts'].get(race_name, 0) + 1
+        stats['race_counts'][parent_race] = \
+            stats['race_counts'].get(parent_race, 0) + 1
         return True
 
     # Variant-expansion: clone-army trait-owners (many placed actors resolving
