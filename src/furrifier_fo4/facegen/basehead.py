@@ -67,6 +67,47 @@ def resolve_shape_textures(shape, resolver) -> dict:
     return {slot: _norm_tex(p) for slot, p in shape.textures.items() if p}
 
 
+def resolve_shape_alpha(shape, resolver):
+    """If the shape's BGSM/BGEM material enables alpha test or blend, return
+    `(flags, threshold)` for a synthesized NiAlphaProperty; else None.
+
+    FO4 hair/eyebrow cards keep their cutout in the MATERIAL, not the nif (e.g.
+    FFOHairFringeFlip.BGSM: alphatest=True, ref=90, no nif NiAlphaProperty), so
+    a bake that only copies the nif's alpha leaves them fully opaque — in-game
+    and in the preview. The CK derives this from the BGSM; so do we.
+
+    NiAlphaProperty flags: bit0 blend-enable, bits1-4 src-blend, bits5-8
+    dst-blend, bit9 test-enable, bits10-12 test-func. The BGSM stores the blend
+    enable + src/dst funcs (alphblend0/1/2) and the test enable + ref
+    (alphatest / alphatestref); cutouts use test function GREATER (4). For a
+    typical hair this yields flags 0x12EC (blend off, src 6, dst 7, test on).
+    """
+    matname = getattr(shape.shader, "name", None)
+    if not matname:
+        return None
+    mat_path = resolver.resolve(_norm_mat(matname))
+    if mat_path is None:
+        return None
+    from pyn.bgsmaterial import MaterialFile
+
+    mat = MaterialFile.Open(str(mat_path))
+    if mat is None:
+        return None
+    blend_on = bool(getattr(mat, "alphblend0", 0))
+    test_on = bool(getattr(mat, "alphatest", False))
+    if not blend_on and not test_on:
+        return None
+    src = int(getattr(mat, "alphblend1", 6)) & 0xF
+    dst = int(getattr(mat, "alphblend2", 7)) & 0xF
+    flags = (src << 1) | (dst << 5)
+    if blend_on:
+        flags |= 0x1
+    if test_on:
+        flags |= 0x200 | (4 << 10)  # test enable + GREATER
+    threshold = int(getattr(mat, "alphatestref", 0)) & 0xFF
+    return flags, threshold
+
+
 class BaseHeadTextures:
     """(race, sex) -> {diffuse, normal, specular} Data-relative paths."""
 

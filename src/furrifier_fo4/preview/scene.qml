@@ -12,10 +12,15 @@ Item {
     // Spherical camera state driven by the MouseArea below.
     property real yaw: 0
     property real pitch: 0
-    // Framed to the scene bounds whenever previewCtx.radius changes
+    // Null-safe views of the context properties: on teardown previewCtx
+    // becomes null while these bindings still re-evaluate, which logged
+    // "Cannot read property '…' of null" on exit. Read through these.
+    property real ctxRadius: previewCtx ? previewCtx.radius : 1
+    property var ctxCenter: previewCtx ? previewCtx.center : Qt.vector3d(0, 0, 0)
+    // Framed to the scene bounds whenever the radius changes
     // (which it does on every new shape set — see FacegenSceneWidget).
-    property real distance: previewCtx.radius * 2.5
-    property real radius: previewCtx.radius
+    property real distance: ctxRadius * 2.5
+    property real radius: ctxRadius
     // Pan offset in scene units. Translates the orbit pivot in the
     // screen plane; reset whenever a new NPC is loaded so the view
     // re-centers on the new head.
@@ -45,11 +50,11 @@ Item {
         Node {
             id: pivotNode
             position: Qt.vector3d(
-                previewCtx.center.x
+                root.ctxCenter.x
                     - root.panX * Math.cos(root.yaw)
                     - root.panY * Math.sin(root.yaw) * Math.sin(root.pitch),
-                previewCtx.center.y + root.panY * Math.cos(root.pitch),
-                previewCtx.center.z
+                root.ctxCenter.y + root.panY * Math.cos(root.pitch),
+                root.ctxCenter.z
                     + root.panX * Math.sin(root.yaw)
                     - root.panY * Math.cos(root.yaw) * Math.sin(root.pitch))
         }
@@ -65,7 +70,7 @@ Item {
                 root.yaw * 180 / Math.PI,
                 0)
             clipNear: 0.1
-            clipFar: Math.max(previewCtx.radius * 20, 100)
+            clipFar: Math.max(root.ctxRadius * 20, 100)
         }
 
         // Three-point lighting (key + fill + bounce) + a rim light
@@ -102,7 +107,7 @@ Item {
                 eulerRotation.y: 180
 
                 Repeater3D {
-                    model: previewCtx.shapes
+                    model: previewCtx ? previewCtx.shapes : []
                     delegate: Model {
                         geometry: modelData.geometry
                         materials: PrincipledMaterial {

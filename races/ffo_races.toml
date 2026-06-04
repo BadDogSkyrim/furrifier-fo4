@@ -16,7 +16,7 @@
 # categories — reference them by exact name if you ever want them.
 [tint_categories]
 "Skin Tone"         = ["Skin tone"]
-Mask                = ["Face Mask *", "Face Plate", "Mask", "Eye Stripe", "Eye Tear", "White Face", "Gazelle"]
+Mask                = ["Face Mask *", "Face Plate", "Mask", "Eye Stripe", "Eye Tear", "White Face"]
 Muzzle              = ["Muzzle", "Muzzle Small", "Cougar White"]
 Muzzle_Stripe       = ["Muzzle Stripe", "Muzzle Upper", "Muzzle Side", "Mouche", "Nose Stripe*"]
 Chin                = ["Chin", "Lower Jaw"]

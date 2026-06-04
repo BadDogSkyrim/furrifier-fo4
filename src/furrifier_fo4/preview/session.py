@@ -33,16 +33,34 @@ from ..facegen.extract import RaceTintTemplates
 log = logging.getLogger(__name__)
 
 
+def _skin_tone_hex(record) -> Optional[str]:
+    """`#RRGGBB` of a furrified NPC override's QNAM (skin tone), or None.
+    QNAM is 4 floats (r,g,b,alpha) in 0-1."""
+    import struct
+    q = record.get_subrecord("QNAM")
+    if q is None or len(q.data) < 12:
+        return None
+    r, g, b = struct.unpack_from("<fff", bytes(q.data), 0)
+    c = lambda v: max(0, min(255, round(v * 255)))
+    return f"#{c(r):02x}{c(g):02x}{c(b):02x}"
+
+
 class PreviewResult:
     __slots__ = ("nif_path", "facecust_dir", "race_name", "editor_id",
-                 "template_owner", "template_count", "template_index")
+                 "template_owner", "template_count", "template_index",
+                 "skin_tone")
 
     def __init__(self, nif_path, facecust_dir, race_name, editor_id,
-                 template_owner=None, template_count=0, template_index=0):
+                 template_owner=None, template_count=0, template_index=0,
+                 skin_tone=None):
         self.nif_path = nif_path
         self.facecust_dir = facecust_dir
         self.race_name = race_name
         self.editor_id = editor_id
+        # "#RRGGBB" of the furrified NPC's skin tone (QNAM), for tinting
+        # FaceGen RGB-tint shapes (horn bases etc.) in the preview. None if
+        # the record carries no QNAM.
+        self.skin_tone = skin_tone
         # When the previewed NPC inherits its look from a template, the trait-
         # owner actually being shown, how many distinct furrifiable owners it
         # could resolve to (the in-game variety), and the 0-based index of the
@@ -337,7 +355,8 @@ class PreviewSession:
         return PreviewResult(nif_path, facecust_dir, race_name, display_edid,
                              template_owner=template_owner,
                              template_count=template_count,
-                             template_index=template_index)
+                             template_index=template_index,
+                             skin_tone=_skin_tone_hex(override))
 
 
     def close(self) -> None:

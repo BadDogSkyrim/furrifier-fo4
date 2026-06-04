@@ -181,6 +181,13 @@ def load_nif_shapes(nif_path: Path) -> List[dict]:
             "palette_scale": palette_scale,
             "alpha_mode": alpha_mode,
             "alpha_cutoff": alpha_cutoff,
+            # FaceGen RGB-tint shapes are multiplied by the NPC's skin tone in
+            # the engine (e.g. FFO horn bases). The head carries this flag too
+            # but its diffuse IS the already-toned FaceCustomization, so the
+            # caller only applies the skin tone to the non-FaceCustomization
+            # ones — see set_nif.
+            "facegen_tint": bool(
+                getattr(shape.shader, "flag_facegen_RBG_tint", False)),
         })
     return shapes
 
@@ -281,7 +288,7 @@ def resolve_greyscale_hair(diffuse_rel: str, greyscale_rel: str,
 class ShapeModel(QObject):
     def __init__(self, name: str, geometry: FacegenShapeGeometry,
                  diffuse_url: str, alpha_mode: str = ALPHA_DEFAULT,
-                 alpha_cutoff: float = 0.5,
+                 alpha_cutoff: float = 0.5, base_color: str = "#ffffff",
                  parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
         self._name = name
@@ -289,6 +296,7 @@ class ShapeModel(QObject):
         self._diffuse_url = diffuse_url
         self._alpha_mode = alpha_mode
         self._alpha_cutoff = float(alpha_cutoff)
+        self._base_color = base_color
 
     @Property(str, constant=True)
     def name(self) -> str:
@@ -312,8 +320,10 @@ class ShapeModel(QObject):
 
     @Property(str, constant=True)
     def baseColor(self) -> str:
-        # FO4 tints are baked into the diffuse; no shader-side tint.
-        return "#ffffff"
+        # Usually white (FO4 tints are baked into the diffuse), but FaceGen
+        # RGB-tint shapes with their own texture (e.g. horn bases) carry the
+        # NPC's skin tone here so PrincipledMaterial multiplies it in.
+        return self._base_color
 
 
 class PreviewContext(QObject):
@@ -389,7 +399,8 @@ class FacegenSceneWidget(QWidget):
 
     def set_nif(self, nif_path: Path, data_dir: Path,
                 bake_root: Optional[Path] = None,
-                preserve_camera: bool = False) -> None:
+                preserve_camera: bool = False,
+                skin_tone: Optional[str] = None) -> None:
         nif_path = Path(nif_path)
         resolver = self._ensure_resolver(data_dir)
         shapes_raw = load_nif_shapes(nif_path)
@@ -407,10 +418,19 @@ class FacegenSceneWidget(QWidget):
             else:
                 diffuse_url = resolve_and_convert_diffuse(
                     s["diffuse"], resolver, self._temp_dir, bake_root) or ""
+            # FaceGen RGB-tint shapes with their own (non-FaceCustomization)
+            # texture get the NPC's skin tone multiplied in — the engine does
+            # this at runtime; the head already has it baked into its
+            # FaceCustomization diffuse, so it stays white.
+            base_color = "#ffffff"
+            if (skin_tone and s.get("facegen_tint")
+                    and "facecustomization" not in (s["diffuse"] or "").lower()):
+                base_color = skin_tone
             shape_models.append(ShapeModel(
                 s["name"], geom, diffuse_url,
                 alpha_mode=s.get("alpha_mode", ALPHA_DEFAULT),
-                alpha_cutoff=s.get("alpha_cutoff", 0.5)))
+                alpha_cutoff=s.get("alpha_cutoff", 0.5),
+                base_color=base_color))
             all_verts.append(s["verts"])
 
         if all_verts:

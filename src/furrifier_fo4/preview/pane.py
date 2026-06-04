@@ -244,7 +244,8 @@ class PreviewPane(QWidget):
         self._last_objid = entry.objid
         if entry.nif_path is not None and entry.nif_path.is_file():
             self._update_template_banner(entry.info or {})
-            self._show(entry.nif_path, entry.bake_root, preserve=True)
+            self._show(entry.nif_path, entry.bake_root, preserve=True,
+                       skin_tone=(entry.info or {}).get("skin_tone"))
         else:
             self._dispatch_bake_for_current()
 
@@ -289,7 +290,8 @@ class PreviewPane(QWidget):
                 entry.bake_root = root
                 entry.info = info
         self._update_template_banner(info)
-        self._show(nif, root, preserve=not self._reset_camera_next)
+        self._show(nif, root, preserve=not self._reset_camera_next,
+                   skin_tone=info.get("skin_tone"))
 
     def _update_template_banner(self, info: dict) -> None:
         """Show the inherited-from-template banner + enable Roll, for a
@@ -325,7 +327,7 @@ class PreviewPane(QWidget):
     # ----- helpers ---------------------------------------------------------
 
     def _show(self, nif_path: Path, bake_root: Optional[Path],
-              preserve: bool) -> None:
+              preserve: bool, skin_tone: Optional[str] = None) -> None:
         config = self._config_provider()
         data_dir = config.data_dir
         if not data_dir:
@@ -341,7 +343,7 @@ class PreviewPane(QWidget):
         self._reset_camera_next = False
         try:
             self.scene.set_nif(nif_path, Path(data_dir), bake_root=bake_root,
-                               preserve_camera=preserve)
+                               preserve_camera=preserve, skin_tone=skin_tone)
             self.reframe_button.setEnabled(True)
         except Exception as exc:
             log.exception("scene load failed")

@@ -27,7 +27,7 @@ from typing import Optional
 
 from .._pyn import ensure_dev_path
 from .assets import AssetResolver
-from .basehead import resolve_shape_textures
+from .basehead import resolve_shape_textures, resolve_shape_alpha
 from .headparts_resolve import HDPT_FACE
 
 ensure_dev_path()
@@ -121,15 +121,21 @@ def _copy_shape(dst: NifFile, fg, src_shape, resolver, face_textures=None,
         new_shape.set_texture("HeightMap", grey or _HAIRCOLOR_LGRAD)
     new_shape.save_shader_attributes()
 
-    # Alpha property: copy verbatim from the source (hair cards use alpha
-    # test/blend; the source nifs carry it, and the CK bakes it too). Without
-    # it the shape renders fully opaque in-game and in the preview.
+    # Alpha property: prefer the source nif's, else synthesize from the BGSM.
+    # Hair cards use alpha test/blend; some source nifs carry a NiAlphaProperty,
+    # but many FFO hairs keep the cutout ONLY in the material (the nif has none)
+    # — and we clear the material ref, so without this they bake fully opaque
+    # in-game and in the preview (e.g. FringeFlip). The CK derives it from the
+    # BGSM; so do we.
     if src_shape.has_alpha_property:
         src_ap = src_shape.alpha_property.properties
+        alpha = (src_ap.flags, src_ap.threshold)
+    else:
+        alpha = resolve_shape_alpha(src_shape, resolver)
+    if alpha is not None:
         new_shape.has_alpha_property = True
         new_ap = new_shape.alpha_property.properties
-        new_ap.flags = src_ap.flags
-        new_ap.threshold = src_ap.threshold
+        new_ap.flags, new_ap.threshold = alpha
         new_shape.save_alpha_property()
 
     # Segments (FO4): copy the source's verbatim.
