@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import Qt, QObject, QThread, Signal
-from PySide6.QtGui import QIntValidator
+from PySide6.QtGui import QGuiApplication, QIntValidator
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QFrame,
     QHBoxLayout, QLabel, QLineEdit, QMainWindow, QPlainTextEdit, QPushButton,
@@ -158,7 +158,8 @@ class FurrifierWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Fallout 4 Furrifier")
-        self.resize(720, 640)
+        self.resize(1080, 960)  # preferred; clamped to the screen on first show
+        self._fitted = False
         self._worker: Optional[_Worker] = None
         self._bridge = _LogBridge()
         self._bridge.new_log.connect(self._append_log)
@@ -169,6 +170,37 @@ class FurrifierWindow(QMainWindow):
         # Last committed Data dir, to suppress no-op reloads on focus-out.
         self._last_data_dir: str = ""
         self._build()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        # Clamp/center once, on first show, when the frame margins and the
+        # actual screen the window landed on are known.
+        if not self._fitted:
+            self._fitted = True
+            self._fit_to_screen()
+
+    def _fit_to_screen(self) -> None:
+        """Shrink the window to the current screen's work area (if the
+        preferred size is taller/wider than it) and center it, so the default
+        never spills off a smaller display."""
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        if screen is None:
+            return
+        avail = screen.availableGeometry()
+        # Reserve room for the window frame so the OUTER frame fits, not just
+        # the client area.
+        extra = self.frameGeometry().size() - self.geometry().size()
+        w = min(self.width(), avail.width() - extra.width())
+        h = min(self.height(), avail.height() - extra.height())
+        if w != self.width() or h != self.height():
+            self.resize(w, h)
+        frame = self.frameGeometry()
+        frame.moveCenter(avail.center())
+        # Never push the title bar off the top-left, even if the content's
+        # minimum size exceeds the work area — keep it grabbable.
+        frame.moveLeft(max(frame.left(), avail.left()))
+        frame.moveTop(max(frame.top(), avail.top()))
+        self.move(frame.topLeft())
 
     # ------------------------------------------------------------- widgets --
 

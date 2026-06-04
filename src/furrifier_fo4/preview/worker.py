@@ -112,7 +112,14 @@ class PreviewWorker(QObject):
             if self._temp_root is None:
                 self._temp_root = Path(
                     tempfile.mkdtemp(prefix="fo4_preview_bake_"))
-            result = session.bake(objid, self._temp_root, facegen_size=512,
+            # Fresh sub-dir per request: the render resolves the head diffuse
+            # straight out of this dir, so reusing one path across bakes risks
+            # showing a prior bake's texture (e.g. when a file is overwritten
+            # with a coarse mtime, or skipped). A unique dir per bake makes a
+            # stale read impossible; all subdirs are cleaned on shutdown.
+            bake_dir = Path(tempfile.mkdtemp(
+                prefix=f"req{request_id}_", dir=self._temp_root))
+            result = session.bake(objid, bake_dir, facegen_size=512,
                                   refurrify=refurrify, roll=roll)
             if result is None:
                 self.bake_failed.emit(
@@ -128,7 +135,7 @@ class PreviewWorker(QObject):
                 "template_index": result.template_index,
             }
             self.bake_ready.emit(request_id, str(result.nif_path),
-                                 str(self._temp_root), info)
+                                 str(bake_dir), info)
         except Exception as exc:
             log.exception("bake failed")
             self.bake_failed.emit(request_id, str(exc))

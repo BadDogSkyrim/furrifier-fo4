@@ -37,4 +37,18 @@ Two files next to the executable:
 - `schemes/<name>.toml` — your scheme: which furry races each class gets, and
   any per-NPC overrides. Pick one at runtime with `--scheme <name>`.
 
+## Tints & blend modes
+
+The furrifier bakes each NPC's face texture itself, and it **honors the blend
+operation** set on every RACE tint-color preset (Default, Multiply, Overlay,
+Soft Light, Hard Light). This matters because **the Creation Kit ignores the
+blend mode when it bakes faces — the furrifier does not.** So blend ops you
+author in a race def take effect in furrified faces even though CK would bake
+them flat. For example, Multiply makes a black marking stay black over any fur
+(use it for stripes); Hard Light makes a white marking stay white (use it for
+white markings — Multiply does nothing to white).
+
+Author these blend ops in **xEdit, not the Creation Kit** — CK silently resets
+a preset's blend operation back to Default on save.
+
 Run the tests with `python -m pytest` from this directory.

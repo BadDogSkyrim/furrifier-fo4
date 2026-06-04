@@ -1,18 +1,16 @@
-"""Build per-race face-tint templates (keyed by FFO category) and apply them.
+"""Build per-race face-tint templates (keyed by layer NAME) and apply them.
 
 A furry RACE record carries Male/Female "Tint Layers": groups of Options. Each
 Option = a TETI (slot+index) + a localized TTGP *name* + a TTEC array of color
 presets (CLFM FormID, alpha, template index).
 
-The raw FO4 TETI *slot* enum is NOT a reliable category — FFO authors park
-options in arbitrary slots (a fox "Nose Stripe" can sit in the "Lip Color"
-slot). FFO instead categorizes each option by its TTGP **name** via a
-translation table (BDAssetLoaderFO4 SetTintLayerTranslations), then applies a
-curated set of categories per NPC (FFO_Furrifier FurrifyNPC) — deliberately
-NOT applying chargen-only categories like Lip Color, Paint, Scar, Old.
-
-We mirror that: name -> category, group by category, apply the allowlist.
-Selection (which option, which color) is hashed on the NPC's appearance
+We store each race's options indexed by their TTGP **name**. Which names apply,
+and how they group into categories, is NOT hardcoded — it comes from the race
+catalog's per-file `[tint_categories]` block (customization.py), so it's
+transparent and editable. A color-scheme or default key resolves either to a
+CATEGORY (de-underscored name found in `[tint_categories]` -> a random one of
+its matching layers) or, failing that, to an EXACT layer name (just that
+layer). Selection (which option, which color) is hashed on the NPC's appearance
 signature so family members differ.
 """
 
@@ -25,65 +23,28 @@ from typing import Optional
 
 from esplib import Record
 from .models import Sex
-from .util import hash_string
+from .util import hash_string, wildcard_match
 
 log = logging.getLogger(__name__)
 
-SKIN_TONE = 'Skin Tone'
-
-# Categories FFO's FurrifyNPC applies, besides Skin Tone (always applied first,
-# seeds QNAM). Order here is apply order; the per-NPC cap limits how many land.
-# Excluded on purpose (chargen/manual only): Lip Color, Paint, Scar, Old.
-# Matches FurrifyNPC's list: Mask, Muzzle, Muzzle Stripe, Chin, Ear, Eyebrow,
-# Forehead, Eyeliner, Eyesocket Lower/Upper, Neck, Cheek Color(Lower), Nose.
-_APPLY_CATEGORIES = (
-    'Mask', 'Muzzle', 'Muzzle Stripe', 'Chin', 'Ear', 'Eyebrow',
-    'Forehead', 'Eyeliner', 'Eyesocket Lower', 'Eyesocket Upper',
-    'Neck', 'Cheek Color Lower', 'Cheek Color', 'Nose',
-)
-_MAX_EXTRA_TINTS = 4
-
-# TTGP option name -> FFO category. Ported verbatim from FFO
-# SetTintLayerTranslations (BDAssetLoaderFO4). Names not here are ignored
-# (e.g. FaceRegions groups, chargen-only oddities).
-_NAME_TO_CATEGORY = {
-    'Blaze Narrow': 'Forehead', 'Blaze Wide': 'Forehead', 'Cap': 'Forehead',
-    'Cheek Color Lower': 'Cheek Color Lower', 'Cheek Color': 'Cheek Color',
-    'Cheeks': 'Cheek Color', 'Chin': 'Chin',
-    'Cougar 01': 'Muzzle Stripe', 'Cougar 02': 'Muzzle Stripe',
-    'Cougar White': 'Muzzle', 'Ears': 'Ear',
-    'Eye Lower': 'Eyesocket Lower', 'Eye Shadow': 'Eyeliner',
-    'Eye Socket Upper': 'Eyesocket Upper', 'Eye Socket': 'Eyeliner',
-    'Eye Stripe': 'Mask', 'Eye Tear': 'Mask', 'Eye Upper': 'Eyesocket Upper',
-    'Eyebrow Spot': 'Eyebrow', 'Eyebrow': 'Eyebrow', 'Eyeliner': 'Eyeliner',
-    'Face Mask 1': 'Mask', 'Face Mask 2': 'Mask', 'Face Mask 3': 'Mask',
-    'Face Mask 4': 'Mask', 'Face Plate': 'Mask', 'Fishbones': 'Paint',
-    'Forehead': 'Forehead', 'Gazelle': 'Mask', 'Head Scales': 'Forehead',
-    'Lips': 'Lip Color', 'Lower Jaw': 'Chin', 'Mask': 'Mask',
-    'Mouche': 'Muzzle Stripe', 'Muzzle Side': 'Muzzle Stripe',
-    'Muzzle Small': 'Muzzle', 'Muzzle Stripe': 'Muzzle Stripe',
-    'Muzzle Upper': 'Muzzle Stripe', 'Muzzle': 'Muzzle',
-    'Nose Color': 'Nose', 'Nose Stripe 1': 'Muzzle Stripe',
-    'Nose Stripe 2': 'Muzzle Stripe', 'Nose Stripe': 'Muzzle Stripe',
-    'Nose': 'Nose', 'Old': 'Old',
-    'Scar - Left Long': 'Scar', 'Skin tone': 'Skin Tone', 'Skull': 'Paint',
-    'Star': 'Forehead', 'Stripes 01': 'Mask', 'Stripes 02': 'Mask',
-    'Stripes 03': 'Mask', 'Upper Head': 'Forehead', 'White Face': 'Mask',
-    'White Face 01': 'Cheek Color', 'White Face 02': 'Cheek Color',
-    'White Face 03': 'Cheek Color',
-}
+# Category key treated specially: always applied first and seeds QNAM. Matched
+# case-insensitively against the de-underscored category keys.
+SKIN_TONE_KEY = 'skin tone'
+# No-scheme per-category gate (percent). No cap — a race applies all the
+# categories its file defines (sans Skin Tone) at this odds.
+_DEFAULT_GATE = 65
 
 _TTEC_ENTRY = 14  # FormID(4) + alpha(f4) + template idx(u16) + blend(u32)
 
 
 class TintOption:
-    """One race tint Option: its TETI index, FFO category, and color presets."""
+    """One race tint Option: its TETI index, TTGP layer name, and color presets."""
 
-    __slots__ = ('index', 'category', 'colors')
+    __slots__ = ('index', 'name', 'colors')
 
-    def __init__(self, index: int, category: str):
+    def __init__(self, index: int, name: str):
         self.index = index
-        self.category = category
+        self.name = name
         self.colors: list = []  # (clfm_fid, alpha, template_index)
 
 
@@ -122,8 +83,9 @@ class RaceTints:
 
 
     def _parse_race(self, race: Record) -> dict:
-        """Parse a race's Male/Female tint Options, grouped by sex + FFO
-        category (resolved from each Option's localized TTGP name).
+        """Parse a race's Male/Female tint Options, grouped by sex + lowercased
+        TTGP layer name (every named option is kept; categories are applied
+        later from the catalog's [tint_categories]).
 
         Walk: NAM0 markers split male/female; a TETI starts an Option; the
         FIRST TTGP after that TETI is the Option's name; TTEC fills colors.
@@ -148,12 +110,11 @@ class RaceTints:
             elif s == 'TTGP' and awaiting_name and section is not None:
                 name = self._read_ttgp(sr, plugin)
                 awaiting_name = False
-                category = _NAME_TO_CATEGORY.get(name)
-                if category is not None:
-                    opt = TintOption(slot_index, category)
-                    by_sex[section][category].append(opt)
+                if name:
+                    opt = TintOption(slot_index, name)
+                    by_sex[section][name.lower()].append(opt)
                 else:
-                    opt = None  # uncategorized name: ignore this option
+                    opt = None  # unnamed option: ignore
             elif s == 'TTEC' and opt is not None:
                 n = sr.size // _TTEC_ENTRY
                 for k in range(n):
@@ -172,30 +133,28 @@ class RaceTints:
         return sr.data.rstrip(b'\x00').decode('cp1252', 'replace').strip()
 
 
-    def options(self, race_edid: str, sex: Sex, category: str) -> list:
-        return self._by_race.get(race_edid, {}).get(sex, {}).get(category, [])
+    def options_by_name(self, race_edid: str, sex: Sex) -> dict:
+        """{layer_name_lower: [TintOption]} for a race+sex (empty if none)."""
+        return self._by_race.get(race_edid, {}).get(sex, {})
 
 
     def rgb(self, clfm_fid: int) -> Optional[tuple]:
         return self._clfm_rgb.get(clfm_fid)
 
 
-    def pick_layer(self, race_edid: str, sex: Sex, category: str,
-                   signature: str, seed: int, color_rule=None):
-        """Pick (option, (clfm_fid, alpha, tmpl)) for a category, or None.
+    def pick_from(self, options: list, signature: str, seed: int,
+                  allow_zero: bool = False, color_rule=None):
+        """Pick (option, (clfm_fid, alpha, tmpl)) from a list of TintOptions, or
+        None.
 
-        Choose an option, then a color preset with alpha > 0 (skin tone
-        allows alpha 0). When `color_rule` (a customization.ColorRule) is
-        given with a non-empty palette, restrict to its allowed CLFM EditorIDs
-        and override the alpha with the scheme's intensity. Returns None if
-        nothing usable.
+        Choose one option, then a color preset with alpha > 0 (`allow_zero` for
+        skin tone). When `color_rule` (a customization.ColorRule) has a non-empty
+        palette, restrict to its allowed CLFM EditorIDs and override alpha with
+        the scheme's intensity. Returns None if nothing usable.
         """
-        opts = self.options(race_edid, sex, category)
-        if not opts:
+        if not options:
             return None
-        option = opts[hash_string(signature, seed, len(opts))]
-        allow_zero = (category == SKIN_TONE)
-
+        option = options[hash_string(signature, seed, len(options))]
         palette = color_rule.colors if (color_rule and color_rule.colors) else None
         usable = []
         for clfm_fid, alpha, tmpl in option.colors:
@@ -217,56 +176,69 @@ class RaceTints:
 
 def apply_tints(patch, ov: Record, race_edid: str, sex: Sex,
                 signature: str, race_tints: RaceTints,
-                color_scheme=None) -> int:
+                color_scheme=None, categories=None) -> int:
     """Write face-tint layers onto a furrified NPC override. Returns count.
 
-    Skin Tone first (seeds QNAM), then up to _MAX_EXTRA_TINTS categories from
-    the curated allowlist, each gated by a deterministic per-category roll.
+    `categories` is the race's file-scoped {category_key_lower: [patterns]}.
+    A scheme/default key resolves to a CATEGORY (random one of its matching
+    layers) or, failing that, an EXACT layer name (just that layer).
 
-    `color_scheme` (category -> ColorRule) constrains palette + per-category
-    probability when the race has a named scheme; without it, the race's full
-    TTEC palette is used at a default ~65% per-category gate.
+    Skin Tone is always applied first (seeds QNAM), gated only by an explicit
+    scheme probability < 1. Then: with a `color_scheme`, apply exactly the keys
+    it lists, in order, each at its own probability; without one, apply each
+    defined category (in file order) at the ~65% default gate. No cap either way.
     """
-    def rule_for(cat):
-        return color_scheme.get(cat) if color_scheme else None
+    categories = categories or {}
+    names = race_tints.options_by_name(race_edid, sex)
+    if not names:
+        return 0
+
+    def resolve(key_lower: str) -> list:
+        pats = categories.get(key_lower)
+        if pats is not None:                       # a category -> matching layers
+            out = []
+            for nm_lower, opts in names.items():
+                if any(wildcard_match(p, nm_lower) for p in pats):
+                    out.extend(opts)
+            return out
+        return list(names.get(key_lower, []))      # else an exact layer name
+
+    # Scheme keys, lowercased (so `Muzzle_Stripe`/`Muzzle Stripe` resolve the
+    # same), order preserved.
+    scheme = {k.lower(): v for k, v in color_scheme.items()} if color_scheme \
+        else None
 
     written = 0
 
-    skin_rule = rule_for(SKIN_TONE)
+    # Skin tone: always attempted first, seeds QNAM.
+    skin_rule = scheme.get(SKIN_TONE_KEY) if scheme else None
     if skin_rule is None or skin_rule.probability >= 1.0 or \
             hash_string(signature, 9001, 100) < skin_rule.probability * 100:
-        skin = race_tints.pick_layer(race_edid, sex, SKIN_TONE, signature,
-                                     9523, color_rule=skin_rule)
-        if skin is not None:
-            option, color = skin
+        picked = race_tints.pick_from(resolve(SKIN_TONE_KEY), signature, 9523,
+                                      allow_zero=True, color_rule=skin_rule)
+        if picked is not None:
+            option, color = picked
             _write_layer(ov, option, color, race_tints)
             _set_qnam(ov, race_tints.rgb(color[0]), color[1])
             written += 1
 
-    extra = 0
-    for ci, category in enumerate(_APPLY_CATEGORIES):
-        if extra >= _MAX_EXTRA_TINTS:
-            break
-        rule = rule_for(category)
-        # Gate: scheme probability if present, else the default ~65% temper.
-        if rule is not None:
-            if hash_string(signature, 2189 + ci * 53, 100) >= rule.probability * 100:
-                continue
-        elif color_scheme is not None:
-            # Race has a scheme but doesn't list this category -> skip it
-            # (scheme is authoritative about which categories apply).
+    # Everything else, in order. Scheme keys win; else the file's categories.
+    if scheme is not None:
+        items = [(k, r) for k, r in scheme.items() if k != SKIN_TONE_KEY]
+    else:
+        items = [(k, None) for k in categories if k != SKIN_TONE_KEY]
+
+    for i, (key_lower, rule) in enumerate(items):
+        gate = rule.probability * 100 if rule is not None else _DEFAULT_GATE
+        if hash_string(signature, 2189 + i * 53, 100) >= gate:
             continue
-        elif hash_string(signature, 2189 + ci * 53, 100) >= 65:
-            continue
-        picked = race_tints.pick_layer(race_edid, sex, category,
-                                       signature, 1783 + ci * 41,
-                                       color_rule=rule)
+        picked = race_tints.pick_from(resolve(key_lower), signature,
+                                      1783 + i * 41, color_rule=rule)
         if picked is None:
             continue
         option, color = picked
         _write_layer(ov, option, color, race_tints)
         written += 1
-        extra += 1
 
     return written
 

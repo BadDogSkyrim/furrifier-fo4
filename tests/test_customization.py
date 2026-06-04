@@ -5,7 +5,8 @@ import tomllib
 import pytest
 
 from furrifier_fo4.customization import (
-    Customization, _apply_row, _parse_weight_range, _parse_headpart_value)
+    Customization, _apply_row, _parse_weight_range, _parse_headpart_value,
+    _parse_tint_categories, load_customization)
 from furrifier_fo4.models import Sex
 
 
@@ -100,3 +101,25 @@ def test_colors_reference():
     colors = "WhiteTailScheme"
     ''')
     assert c.colors['WhiteTail'] == 'WhiteTailScheme'
+
+
+def test_parse_tint_categories_de_underscores_and_lowercases():
+    cats = _parse_tint_categories({
+        'Mask': ['*mask*', 'Face Plate'],
+        'Muzzle_Stripe': ['Mouche'],
+        'Skin Tone': 'Skin tone',          # bare string -> single-pattern list
+    })
+    assert cats['mask'] == ['*mask*', 'Face Plate']
+    assert cats['muzzle stripe'] == ['Mouche']
+    assert cats['skin tone'] == ['Skin tone']
+
+
+def test_tint_categories_are_file_scoped(tmp_path):
+    (tmp_path / 'a.toml').write_text(
+        '[tint_categories]\nMask = ["*mask*"]\n'
+        '[[race_customization]]\nrace = "RaceA"\n')
+    (tmp_path / 'b.toml').write_text(
+        '[[race_customization]]\nrace = "RaceB"\n')
+    c = load_customization(tmp_path)
+    assert c.categories_for('RaceA') == {'mask': ['*mask*']}
+    assert c.categories_for('RaceB') == {}   # b.toml has no [tint_categories]

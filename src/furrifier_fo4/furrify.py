@@ -182,8 +182,10 @@ def apply_furry(patch: Plugin, ov: Record, furry_race: Record,
         from .tints import apply_tints
         scheme = (customization.color_scheme_for(race_edid)
                   if customization is not None else None)
+        cats = (customization.categories_for(race_edid)
+                if customization is not None else None)
         apply_tints(patch, ov, race_edid, sex, signature, race_tints,
-                    color_scheme=scheme)
+                    color_scheme=scheme, categories=cats)
 
     # 6. Weight: remap MWGT thin/musc/fat into the race's configured ranges,
     # hashed on signature so NPCs vary within the band.

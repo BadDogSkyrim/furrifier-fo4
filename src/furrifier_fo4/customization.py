@@ -38,6 +38,10 @@ _HP_KEYS = {
     'FACE': 'Face',
 }
 
+# Structural row keys (everything else is an inline color-rule key, validated by
+# shape: a list of [key, value] entries).
+_RESERVED_ROW_KEYS = {'race', 'sex', 'child_race', 'weight_range', 'colors'}
+
 
 class HeadpartRule:
     __slots__ = ('probability', 'whitelist')
@@ -73,8 +77,12 @@ class Customization:
         self.headpart_rules: dict[tuple, HeadpartRule] = {}
         # race -> color scheme name
         self.colors: dict[str, str] = {}
-        # scheme name -> category name -> ColorRule
+        # scheme name -> category-or-layer key -> ColorRule
         self.color_schemes: dict[str, dict] = {}
+        # race -> {category_key_lower: [layer-name glob patterns]}, from the
+        # [tint_categories] block of the FILE that defines the race (file-scoped,
+        # so categories don't bleed between race catalogs).
+        self.tint_categories: dict[str, dict] = {}
 
 
     def child_race(self, race_edid: str) -> Optional[str]:
@@ -82,10 +90,17 @@ class Customization:
 
 
     def color_scheme_for(self, race_edid: str) -> Optional[dict]:
-        """category -> ColorRule for a race's named scheme, or None (no
-        scheme = use the race's full palette)."""
+        """key -> ColorRule for a race's named scheme, or None (no scheme =
+        use the race's full palette). Keys are category-or-layer names."""
         name = self.colors.get(race_edid)
         return self.color_schemes.get(name) if name else None
+
+    def categories_for(self, race_edid: str) -> dict:
+        """{category_key_lower: [patterns]} for the race's file, or {} if its
+        file defined no [tint_categories]. Drives which tint-layer names a
+        category key resolves to (a scheme/default key that isn't a category is
+        treated as an exact layer name)."""
+        return self.tint_categories.get(race_edid, {})
 
 
     def weight_range(self, race_edid: str, sex: Sex):
@@ -140,19 +155,46 @@ def _parse_headpart_value(val) -> HeadpartRule:
 
 
 def load_customization(races_dir: Path) -> Customization:
-    """Merge every races/*.toml [[race_customization]] row into one store."""
+    """Merge every races/*.toml [[race_customization]] row into one store.
+
+    `[tint_categories]` is FILE-SCOPED: each file's categories attach only to
+    the races that file defines, so catalogs stay self-contained."""
     cust = Customization()
     if not races_dir.is_dir():
         return cust
     for toml_path in sorted(races_dir.glob('*.toml')):
         with open(toml_path, 'rb') as f:
             data = tomllib.load(f)
+        file_categories = _parse_tint_categories(data.get('tint_categories', {}))
         for row in data.get('race_customization', []):
             _apply_row(cust, row, toml_path.name)
+            race = row.get('race')
+            if race and file_categories:
+                cust.tint_categories[race] = file_categories
         for name, block in data.get('color_schemes', {}).items():
             cust.color_schemes[name] = _parse_color_scheme(block, name,
                                                            toml_path.name)
     return cust
+
+
+def _parse_tint_categories(block: dict) -> dict:
+    """[tint_categories] -> {category_key_lower: [layer-name glob patterns]}.
+
+    Keys are de-underscored + lowercased so a scheme key (`Muzzle_Stripe`) and
+    the category key (`Muzzle Stripe`) resolve the same. A value is a list of
+    case-insensitive globs over tint-layer (TTGP) names; a literal (no `*`)
+    matches that exact layer. Insertion order is preserved (= no-scheme apply
+    order)."""
+    out: dict = {}
+    for raw_cat, patterns in block.items():
+        if isinstance(patterns, str):
+            patterns = [patterns]
+        if not isinstance(patterns, list):
+            log.warning("tint_categories %r: expected a list of patterns, got "
+                        "%r", raw_cat, patterns)
+            continue
+        out[raw_cat.replace('_', ' ').lower()] = [str(p) for p in patterns]
+    return out
 
 
 def _parse_color_scheme(block: dict, name: str, source: str) -> dict:
@@ -198,7 +240,29 @@ def _apply_row(cust: Customization, row: dict, source: str) -> None:
         if ranges is not None:
             cust.weight_ranges[(race, sex)] = ranges
 
-    if row.get('colors'):
+    # Color scheme: either a `colors = "Name"` reference to a shared
+    # [color_schemes.Name] block, or inline category rules written directly on
+    # the row. An inline key is any non-reserved key whose value is a list of
+    # [key, value] entries (the color-rule shape); it synthesizes a private
+    # scheme for this race. Inline rules win over a `colors` reference.
+    inline = {}
+    for key, val in row.items():
+        if key in _RESERVED_ROW_KEYS or key in _HP_KEYS:
+            continue
+        if isinstance(val, list) and val and all(isinstance(e, list) for e in val):
+            inline[key] = val
+        else:
+            log.warning("%s: %s: unrecognized race_customization key %r",
+                        source, race, key)
+    if inline:
+        scheme_name = f"__inline__{race}"
+        cust.color_schemes[scheme_name] = _parse_color_scheme(
+            inline, scheme_name, source)
+        if row.get('colors'):
+            log.warning("%s: %s has both colors=%r and inline tint rules; "
+                        "inline rules win", source, race, row['colors'])
+        cust.colors[race] = scheme_name
+    elif row.get('colors'):
         cust.colors[race] = row['colors']
 
     for key, hp_cat in _HP_KEYS.items():

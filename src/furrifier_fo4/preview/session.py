@@ -62,7 +62,10 @@ class PreviewSession:
         self.scheme = load_scheme(scheme_name)
         self.scheme.build_indexes()
         if races_dir is None:
-            races_dir = Path(__file__).resolve().parents[2] / "races"
+            # This file is one level deeper than the run's session.py
+            # (…/preview/session.py), so the project root is parents[3], not
+            # parents[2] — the catalog lives at <root>/races.
+            races_dir = Path(__file__).resolve().parents[3] / "races"
         self.cust = load_customization(Path(races_dir))
 
         if plugins is None:
