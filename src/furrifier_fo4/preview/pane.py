@@ -60,6 +60,10 @@ class PreviewPane(QWidget):
         self._catalog_loaded: bool = False
         # Roll clicked before the catalog finished loading -> roll once it's ready.
         self._roll_pending: bool = False
+        # A Roll is in flight (vs a manual pick); if it lands on an NPC the
+        # scheme doesn't actually furrify, re-roll up to _MAX_ROLL_RETRIES.
+        self._rolling: bool = False
+        self._roll_retries: int = 0
 
         _nav_qss = "QPushButton { font-size: 18pt; padding: 0px; margin: 0px; }"
         self.back_button = QPushButton("◀", self)
@@ -84,7 +88,7 @@ class PreviewPane(QWidget):
 
         self.picker = NpcPickerWidget(self)
         self.picker.setEnabled(False)
-        self.picker.npc_selected.connect(self._on_npc_picked)
+        self.picker.npc_selected.connect(self._on_picker_selected)
 
         self.scene = FacegenSceneWidget(self)
         sp = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -191,6 +195,13 @@ class PreviewPane(QWidget):
 
     # ----- picker / navigation ---------------------------------------------
 
+    def _on_picker_selected(self, objid: int) -> None:
+        """A manual pick from the dropdown — not a Roll, so don't auto-re-roll
+        if it turns out the scheme gates this NPC."""
+        self._rolling = False
+        self._roll_retries = 0
+        self._on_npc_picked(objid)
+
     def _on_npc_picked(self, objid: int) -> None:
         for i, entry in enumerate(self._history):
             if entry.objid == objid:
@@ -236,6 +247,7 @@ class PreviewPane(QWidget):
         choices = [e for e in entries if e.form_id != self._last_objid] or entries
         entry = random.choice(choices)
         idx = next(i for i, e in enumerate(entries) if e.form_id == entry.form_id)
+        self._rolling = True               # so a gated pick auto-re-rolls
         self.picker.setCurrentIndex(idx)   # reflect the pick in the dropdown
         self._on_npc_picked(entry.form_id)
 
@@ -294,6 +306,8 @@ class PreviewPane(QWidget):
                        bake_root: str, info: object) -> None:
         if not self._tracker.is_current(request_id):
             return
+        self._rolling = False            # Roll landed on a furrifiable NPC
+        self._roll_retries = 0
         nif = Path(nif_path)
         root = Path(bake_root) if bake_root else None
         info = info if isinstance(info, dict) else {}
@@ -321,12 +335,27 @@ class PreviewPane(QWidget):
         else:
             self.template_label.hide()
 
+    _MAX_ROLL_RETRIES = 20
+
     def _on_bake_failed(self, request_id: int, message: str) -> None:
         if not self._tracker.is_current(request_id):
             return
         self.template_label.hide()
-        self.roll_button.setEnabled(False)
-        self.status_label.setText(f"Bake failed: {message}")
+        # A Roll that landed on an NPC the scheme doesn't furrify (gated): the
+        # catalog lists furry-relevant base races but the scheme can still gate
+        # one. Just roll again, up to a cap, so Roll reliably lands on a
+        # furrifiable NPC. (Roll stays enabled regardless.)
+        if self._rolling and self._roll_retries < self._MAX_ROLL_RETRIES:
+            self._roll_retries += 1
+            self._on_roll()
+            return
+        if self._rolling:
+            self.status_label.setText(
+                "Couldn't find a furrifiable NPC to roll — try a different scheme.")
+        else:
+            self.status_label.setText(f"Bake failed: {message}")
+        self._rolling = False
+        self._roll_retries = 0
 
     # ----- helpers ---------------------------------------------------------
 
