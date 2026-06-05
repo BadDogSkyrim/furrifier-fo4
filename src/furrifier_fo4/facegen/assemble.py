@@ -27,7 +27,8 @@ from typing import Optional
 
 from .._pyn import ensure_dev_path
 from .assets import AssetResolver
-from .basehead import resolve_shape_textures, resolve_shape_alpha
+from .basehead import (resolve_shape_textures, resolve_shape_alpha,
+                       ensure_materials_cached)
 from .headparts_resolve import HDPT_FACE
 
 ensure_dev_path()
@@ -178,7 +179,11 @@ def build_facegen_nif(form_id: str, base_plugin: str, headparts: list,
         if src_path is None:
             log.debug("head part nif missing: %s", hp["source_nif"])
             continue
-        src_nif = NifFile(str(src_path))
+        # Cache referenced BGSMs, then point PyNifly's material search at the
+        # cache so opening the nif doesn't spam "Could not find materials file"
+        # (and the shader reads come from the BGSM, not the nif's inline block).
+        ensure_materials_cached(resolver, hp["source_nif"], src_path)
+        src_nif = NifFile(str(src_path), materialsRoot=resolver.cache_root)
         for src_shape in src_nif.shapes:
             sources.append((hp, src_shape))
             for bone in src_shape.bone_names:

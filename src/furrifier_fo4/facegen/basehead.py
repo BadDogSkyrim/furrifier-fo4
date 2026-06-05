@@ -40,6 +40,48 @@ def _norm_mat(path: str) -> str:
     return p
 
 
+# nif relpaths whose referenced materials we've already extracted into the cache
+# (process-local; each parallel bake worker has its own resolver + cache).
+_MATERIALS_CACHED: set = set()
+
+
+def ensure_materials_cached(resolver, nif_relpath: str, nif_path) -> None:
+    """Extract a (BA2-sourced) nif's referenced BGSM/BGEM materials into the
+    SAME temp cache as the nif, so PyNifly resolves them instead of spamming
+    "Could not find materials file".
+
+    PyNifly's `find_referenced_file` looks for a sibling `materials\\` tree next
+    to the nif (root = the path up to `meshes\\`). A nif extracted from a BA2
+    lives at `<cache>/meshes/...`, but its BGSM may sit in a *different* BA2 that
+    PyNifly can't read, so the lookup fails on every shader/texture access. We
+    pre-resolve each shape's material via our own AssetResolver (BA2-aware),
+    which writes it to `<cache>/materials/...` — exactly where PyNifly looks.
+
+    One-time per nif. The brief scan open silences pynifly's logger because the
+    materials genuinely aren't cached yet *at scan time*; after this the real
+    bake open of the nif finds them and is warning-free."""
+    key = nif_relpath.replace("/", "\\").lower()
+    if key in _MATERIALS_CACHED:
+        return
+    _MATERIALS_CACHED.add(key)
+    ensure_dev_path()
+    from pyn.pynifly import NifFile
+
+    pyn_log = logging.getLogger("pynifly")
+    prev = pyn_log.level
+    pyn_log.setLevel(logging.ERROR)
+    try:
+        nif = NifFile(str(nif_path))
+        for shape in nif.shapes:
+            matname = getattr(shape.shader, "name", None)
+            if matname:
+                resolver.resolve(_norm_mat(matname))
+    except Exception as exc:
+        log.debug("material prefetch failed for %s: %s", nif_relpath, exc)
+    finally:
+        pyn_log.setLevel(prev)
+
+
 def resolve_shape_textures(shape, resolver) -> dict:
     """Authoritative texture slots for a PyNifly shape: the BGSM/BGEM material
     if resolvable (FO4's source of truth), else the nif's inline set. Slot
@@ -137,11 +179,13 @@ class BaseHeadTextures:
         ensure_dev_path()
         from pyn.pynifly import NifFile
 
-        nif_path = self.resolver.resolve("meshes\\" + model_rel)
+        nif_rel = "meshes\\" + model_rel
+        nif_path = self.resolver.resolve(nif_rel)
         if nif_path is None:
             log.warning("base head nif not found: %s", model_rel)
             return None
-        nif = NifFile(str(nif_path))
+        ensure_materials_cached(self.resolver, nif_rel, nif_path)
+        nif = NifFile(str(nif_path), materialsRoot=self.resolver.cache_root)
         # The head is the highest-poly shape (the only Face shape in the nif).
         shape = max(nif.shapes, key=lambda s: len(s.verts), default=None)
         if shape is None:

@@ -123,6 +123,16 @@ class AssetResolver:
                 log.debug("cache cleanup failed: %s", exc)
         self._cache_dir = None
 
+    @property
+    def cache_root(self) -> Optional[str]:
+        """The temp-cache root (where BA2-extracted assets land), or None if
+        nothing's been extracted yet. Pass as `NifFile(materialsRoot=...)` so
+        PyNifly resolves a BA2 BGSM that `ensure_materials_cached` extracted
+        here — even when the nif itself is loose (PyNifly otherwise searches
+        only relative to the nif, i.e. the real Data dir, and misses BA2
+        materials)."""
+        return str(self._cache_dir) if self._cache_dir is not None else None
+
     # ----------------------------------------------------------- resolve --
 
     def resolve(self, relpath: str) -> Optional[Path]:
