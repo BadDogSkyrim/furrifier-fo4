@@ -58,6 +58,8 @@ class PreviewPane(QWidget):
         self._history_cap: int = 20
         self._reset_camera_next: bool = True
         self._catalog_loaded: bool = False
+        # Roll clicked before the catalog finished loading -> roll once it's ready.
+        self._roll_pending: bool = False
 
         _nav_qss = "QPushButton { font-size: 18pt; padding: 0px; margin: 0px; }"
         self.back_button = QPushButton("◀", self)
@@ -76,7 +78,7 @@ class PreviewPane(QWidget):
         # Roll: pick & preview a random furrifiable NPC from the catalog — a
         # quick way to spot-check furrification across the load order.
         self.roll_button = QPushButton("Roll", self)
-        self.roll_button.setEnabled(False)
+        self.roll_button.setEnabled(True)   # available from startup
         self.roll_button.setToolTip("Show a random furrifiable NPC")
         self.roll_button.clicked.connect(self._on_roll)
 
@@ -182,7 +184,7 @@ class PreviewPane(QWidget):
         self.back_button.setEnabled(False)
         self.forward_button.setEnabled(False)
         self.reframe_button.setEnabled(False)
-        self.roll_button.setEnabled(False)
+        # Roll stays enabled (it picks any NPC, not tied to the current bake).
         self.template_label.hide()
         self.scene.clear()
         self.headparts_label.setText("")
@@ -219,10 +221,16 @@ class PreviewPane(QWidget):
                                  config.refurrify_existing, roll)
 
     def _on_roll(self) -> None:
-        """Pick and preview a random furrifiable NPC from the catalog."""
+        """Pick and preview a random furrifiable NPC. Available from startup; if
+        the catalog hasn't loaded yet, remember the click and roll once it has."""
         import random
         entries = self.picker.entries()
         if not entries:
+            self._roll_pending = True
+            if not self._catalog_loaded:
+                self._catalog_loaded = True
+                self._reload_catalog()
+            self.status_label.setText("Loading NPCs…")
             return
         # Prefer a different NPC than the one shown so Roll always changes.
         choices = [e for e in entries if e.form_id != self._last_objid] or entries
@@ -268,9 +276,11 @@ class PreviewPane(QWidget):
                        for objid, edid in entries]
         self.picker.set_entries(npc_entries)
         self.picker.setEnabled(True)
-        self.roll_button.setEnabled(bool(npc_entries))   # Roll = random NPC
         self.status_label.setText(
             f"{len(npc_entries)} NPCs — pick one to preview.")
+        if self._roll_pending and npc_entries:
+            self._roll_pending = False
+            self._on_roll()   # fulfil a Roll clicked before the catalog loaded
 
     def _on_catalog_failed(self, message: str) -> None:
         self.status_label.setText(f"Couldn't list NPCs: {message}")
