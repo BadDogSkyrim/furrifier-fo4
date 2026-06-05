@@ -239,6 +239,39 @@ def resolve_and_convert_diffuse(relpath: str, resolver: AssetResolver,
     return QUrl.fromLocalFile(str(png_path)).toString()
 
 
+def resolve_and_softlight_diffuse(relpath: str, resolver: AssetResolver,
+                                  temp_dir: Path, tint_hex: str,
+                                  bake_root: Optional[Path] = None) -> Optional[str]:
+    """Resolve a texture and SOFT-LIGHT the NPC's skin tone over its RGB (alpha
+    preserved), returning a file:// PNG URL.
+
+    FaceGen RGB-tint shapes with their own texture (horn bases) are tinted by
+    the engine via a soft-light overlay, exactly like the head's composited
+    FaceCustomization. Multiplying the skin tone in via baseColor darkened them
+    (a mid-grey texture x a dark fur colour ~halves the brightness); soft light
+    shifts hue while preserving brightness, so they match the face."""
+    src = _resolve_texture_file(relpath, resolver, bake_root)
+    if src is None:
+        log.warning("texture missing: %s", relpath)
+        return None
+    r = int(tint_hex[1:3], 16); g = int(tint_hex[3:5], 16); b = int(tint_hex[5:7], 16)
+    png_path = temp_dir / (f"{Path(src).stem}_{_mtime_token(src)}"
+                           f"_sl{r:02x}{g:02x}{b:02x}.png")
+    if not png_path.exists():
+        try:
+            from ..facegen.blend import _soft_light
+            im = np.asarray(Image.open(src).convert("RGBA")).astype(np.float32)
+            base = im[:, :, :3] / 255.0
+            tint = np.array([r, g, b], dtype=np.float32) / 255.0
+            im[:, :, :3] = np.clip(_soft_light(base, tint) * 255.0, 0, 255)
+            Image.fromarray(im.astype(np.uint8), "RGBA").save(png_path)
+        except Exception as exc:
+            log.warning("texture soft-light failed %s: %s", relpath, exc)
+            return resolve_and_convert_diffuse(relpath, resolver, temp_dir,
+                                               bake_root)
+    return QUrl.fromLocalFile(str(png_path)).toString()
+
+
 def resolve_greyscale_hair(diffuse_rel: str, greyscale_rel: str,
                            palette_scale: float, resolver: AssetResolver,
                            temp_dir: Path,
@@ -288,7 +321,7 @@ def resolve_greyscale_hair(diffuse_rel: str, greyscale_rel: str,
 class ShapeModel(QObject):
     def __init__(self, name: str, geometry: FacegenShapeGeometry,
                  diffuse_url: str, alpha_mode: str = ALPHA_DEFAULT,
-                 alpha_cutoff: float = 0.5, base_color: str = "#ffffff",
+                 alpha_cutoff: float = 0.5,
                  parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
         self._name = name
@@ -296,7 +329,6 @@ class ShapeModel(QObject):
         self._diffuse_url = diffuse_url
         self._alpha_mode = alpha_mode
         self._alpha_cutoff = float(alpha_cutoff)
-        self._base_color = base_color
 
     @Property(str, constant=True)
     def name(self) -> str:
@@ -320,10 +352,10 @@ class ShapeModel(QObject):
 
     @Property(str, constant=True)
     def baseColor(self) -> str:
-        # Usually white (FO4 tints are baked into the diffuse), but FaceGen
-        # RGB-tint shapes with their own texture (e.g. horn bases) carry the
-        # NPC's skin tone here so PrincipledMaterial multiplies it in.
-        return self._base_color
+        # FO4 tints are baked into the diffuse — including the skin tone that
+        # FaceGen RGB-tint shapes (horn bases) get soft-lit into their PNG, so
+        # there's no shader-side tint.
+        return "#ffffff"
 
 
 class PreviewContext(QObject):
@@ -411,26 +443,25 @@ class FacegenSceneWidget(QWidget):
                 continue
             geom = FacegenShapeGeometry()
             geom.populate_from(s)
-            if s.get("greyscale") and s.get("greyscale_tex"):
+            if (skin_tone and s.get("facegen_tint")
+                    and "facecustomization" not in (s["diffuse"] or "").lower()):
+                # FaceGen RGB-tint shape with its own texture (horn base): the
+                # engine soft-lights the skin tone over it (like the head's
+                # FaceCustomization), so bake that into the PNG to match.
+                diffuse_url = resolve_and_softlight_diffuse(
+                    s["diffuse"], resolver, self._temp_dir, skin_tone,
+                    bake_root) or ""
+            elif s.get("greyscale") and s.get("greyscale_tex"):
                 diffuse_url = resolve_greyscale_hair(
                     s["diffuse"], s["greyscale_tex"], s["palette_scale"],
                     resolver, self._temp_dir, bake_root) or ""
             else:
                 diffuse_url = resolve_and_convert_diffuse(
                     s["diffuse"], resolver, self._temp_dir, bake_root) or ""
-            # FaceGen RGB-tint shapes with their own (non-FaceCustomization)
-            # texture get the NPC's skin tone multiplied in — the engine does
-            # this at runtime; the head already has it baked into its
-            # FaceCustomization diffuse, so it stays white.
-            base_color = "#ffffff"
-            if (skin_tone and s.get("facegen_tint")
-                    and "facecustomization" not in (s["diffuse"] or "").lower()):
-                base_color = skin_tone
             shape_models.append(ShapeModel(
                 s["name"], geom, diffuse_url,
                 alpha_mode=s.get("alpha_mode", ALPHA_DEFAULT),
-                alpha_cutoff=s.get("alpha_cutoff", 0.5),
-                base_color=base_color))
+                alpha_cutoff=s.get("alpha_cutoff", 0.5)))
             all_verts.append(s["verts"])
 
         if all_verts:
