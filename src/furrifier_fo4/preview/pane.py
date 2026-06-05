@@ -73,14 +73,11 @@ class PreviewPane(QWidget):
         self.reframe_button = QPushButton("Reframe", self)
         self.reframe_button.setEnabled(False)
         self.reframe_button.clicked.connect(lambda: self.scene.reframe_camera())
-        # Roll: re-sample a templated NPC's appearance (random owner + random
-        # signature). Only meaningful — and only enabled — for NPCs whose look
-        # is inherited from a template. See _on_bake_ready.
+        # Roll: pick & preview a random furrifiable NPC from the catalog — a
+        # quick way to spot-check furrification across the load order.
         self.roll_button = QPushButton("Roll", self)
         self.roll_button.setEnabled(False)
-        self.roll_button.setToolTip(
-            "This NPC inherits its look from a template — roll a different "
-            "possible face")
+        self.roll_button.setToolTip("Show a random furrifiable NPC")
         self.roll_button.clicked.connect(self._on_roll)
 
         self.picker = NpcPickerWidget(self)
@@ -222,11 +219,17 @@ class PreviewPane(QWidget):
                                  config.refurrify_existing, roll)
 
     def _on_roll(self) -> None:
-        """Re-sample the current templated NPC: a random reachable owner on a
-        random signature. No history change — it replaces the shown face."""
-        if 0 <= self._history_pos < len(self._history):
-            self._history[self._history_pos].nif_path = None  # force re-bake
-            self._dispatch_bake_for_current(roll=True)
+        """Pick and preview a random furrifiable NPC from the catalog."""
+        import random
+        entries = self.picker.entries()
+        if not entries:
+            return
+        # Prefer a different NPC than the one shown so Roll always changes.
+        choices = [e for e in entries if e.form_id != self._last_objid] or entries
+        entry = random.choice(choices)
+        idx = next(i for i, e in enumerate(entries) if e.form_id == entry.form_id)
+        self.picker.setCurrentIndex(idx)   # reflect the pick in the dropdown
+        self._on_npc_picked(entry.form_id)
 
     def _on_back(self) -> None:
         if self._history_pos > 0:
@@ -265,6 +268,7 @@ class PreviewPane(QWidget):
                        for objid, edid in entries]
         self.picker.set_entries(npc_entries)
         self.picker.setEnabled(True)
+        self.roll_button.setEnabled(bool(npc_entries))   # Roll = random NPC
         self.status_label.setText(
             f"{len(npc_entries)} NPCs — pick one to preview.")
 
@@ -294,28 +298,18 @@ class PreviewPane(QWidget):
                    skin_tone=info.get("skin_tone"))
 
     def _update_template_banner(self, info: dict) -> None:
-        """Show the inherited-from-template banner + enable Roll, for a
-        templated NPC; hide both otherwise. Roll steps through the owners, so
-        the banner shows the current position (face X of N)."""
+        """Show the 'inherited from template' banner for a templated NPC; hide
+        it otherwise. (Roll is now the random-NPC button, independent of this.)"""
         owner = info.get("template_owner")
         count = info.get("template_count") or 0
         if owner and count:
             race = info.get("race") or "?"
-            index = info.get("template_index") or 0
-            if count == 1:
-                self.template_label.setText(
-                    f"Inherited from template: {owner} → {race} "
-                    "(only 1 possible face — shared template)")
-                self.roll_button.setEnabled(False)
-            else:
-                self.template_label.setText(
-                    f"Inherited from template: {owner} → {race} "
-                    f"(face {index + 1} of {count} — Roll to step)")
-                self.roll_button.setEnabled(True)
+            extra = "" if count == 1 else f" (one of {count} possible faces)"
+            self.template_label.setText(
+                f"Inherited from template: {owner} → {race}{extra}")
             self.template_label.show()
         else:
             self.template_label.hide()
-            self.roll_button.setEnabled(False)
 
     def _on_bake_failed(self, request_id: int, message: str) -> None:
         if not self._tracker.is_current(request_id):
