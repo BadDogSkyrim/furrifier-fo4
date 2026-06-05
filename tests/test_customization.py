@@ -29,15 +29,25 @@ def test_child_race():
     assert c.child_race('Unknown') is None
 
 
-def test_weight_range_three_axes():
+def test_weight_range_legacy_list_three_axes():
     c = build('''
     [[race_customization]]
     race = "Cheetah"
     weight_range = [[40, 100], [0, 60], [0, 30]]
     ''')
     r = c.weight_range('Cheetah', Sex.MALE)
-    # Scheme 0-100 -> MWGT 0-1.
-    assert r == [(0.4, 1.0), (0.0, 0.6), (0.0, 0.3)]
+    # Scheme 0-100 -> MWGT 0-1; stored as {axis_index: (lo, hi)}.
+    assert r == {0: (0.4, 1.0), 1: (0.0, 0.6), 2: (0.0, 0.3)}
+
+
+def test_weight_range_table_subset():
+    c = build('''
+    [[race_customization]]
+    race = "Cheetah"
+    weight_range = {thin = [40, 100], fat = [0, 20]}
+    ''')
+    # Only thin (0) and fat (2) pinned; muscle (1) omitted = the slack axis.
+    assert c.weight_range('Cheetah', Sex.MALE) == {0: (0.4, 1.0), 2: (0.0, 0.2)}
 
 
 def test_weight_range_malformed_ignored():

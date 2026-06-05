@@ -205,36 +205,76 @@ def apply_furry(patch: Plugin, ov: Record, furry_race: Record,
         apply_tints(patch, ov, race_edid, sex, signature, race_tints,
                     color_scheme=scheme, categories=cats)
 
-    # 6. Weight: remap MWGT thin/musc/fat into the race's configured ranges,
-    # hashed on signature so NPCs vary within the band.
-    if (customization is not None and race_edid and sex is not None
-            and signature):
-        ranges = customization.weight_range(cust_key, sex)
-        if ranges is not None:
-            _apply_weight(ov, ranges, signature)
+    # 6. Weight: set MWGT so thin/musc/fat sum to 1.0 (FO4 over-applies the body
+    # morphs past 1 -> super-fat/super-thin). Runs for EVERY NPC: a weight_range
+    # pins axes + a slack axis; with none, the NPC's own MWGT is normalized.
+    if sex is not None and signature:
+        spec = (customization.weight_range(cust_key, sex)
+                if (customization is not None and cust_key) else None)
+        _apply_weight(ov, spec, signature)
 
     ov.modified = True
     return ov
 
 
-def _apply_weight(ov: Record, ranges, signature: str) -> None:
-    """Set MWGT thin/musc/fat each to a deterministic value in its (lo,hi)
-    range. `ranges` is [(lo,hi)*3] in 0-1 space."""
-    vals = []
-    for axis, (lo, hi) in enumerate(ranges):
-        if hi <= lo:
-            vals.append(lo)
+def _apply_weight(ov: Record, spec, signature: str) -> None:
+    """Set MWGT (thin/muscular/fat) so the three axes sum to 1.0.
+
+    `spec` is `{axis_index: (lo, hi)}` (0-1) for the axes a race's weight_range
+    pins (0=thin, 1=muscular, 2=fat), or None. With a spec: each pinned axis is
+    picked in its band (hashed on signature), and any OMITTED axis absorbs the
+    residual `1 - sum(pinned)` so the total is exactly 1 — the slack axis (two
+    omitted split it). If all three are pinned, pick then normalize to 1 (best
+    effort; may leave the bands). With no spec, the NPC's existing MWGT is
+    normalized to 1 (its build, de-extremed). All-zero MWGT stays the race's
+    base body."""
+    _write_mwgt(ov, _compute_weights(spec, _read_mwgt(ov), signature))
+
+
+def _compute_weights(spec, raw, signature: str):
+    """Pure MWGT computation (see `_apply_weight`): returns [thin, musc, fat]
+    summing to 1.0 (or all-zero if there's nothing to morph)."""
+    vals = [0.0, 0.0, 0.0]
+    if spec:
+        omitted = [i for i in range(3) if i not in spec]
+        for i, (lo, hi) in spec.items():
+            f = hash_string(signature, 5501 + i * 137, 1001) / 1000.0
+            vals[i] = lo + f * (hi - lo) if hi > lo else lo
+        if omitted:
+            residual = 1.0 - sum(vals[i] for i in spec)
+            if residual >= 0.0:
+                share = residual / len(omitted)
+                for i in omitted:
+                    vals[i] = share
+            else:
+                vals = _normalize(vals)   # pinned axes exceed 1 -> best effort
         else:
-            # 0..1000 resolution, decorrelated per axis.
-            frac = hash_string(signature, 5501 + axis * 137, 1001) / 1000.0
-            vals.append(lo + frac * (hi - lo))
-    data = struct.pack('<fff', *vals)
-    mwgt = ov.get_subrecord('MWGT')
-    if mwgt is None:
+            vals = _normalize(vals)       # all three pinned -> normalize to 1
+    else:
+        vals = _normalize(raw) if sum(raw) > 0.0 else list(raw)
+    return vals
+
+
+def _normalize(vals):
+    s = sum(vals)
+    return [v / s for v in vals] if s > 0.0 else list(vals)
+
+
+def _read_mwgt(ov: Record):
+    sr = ov.get_subrecord('MWGT')
+    if sr is None or len(sr.data) < 12:
+        return [0.0, 0.0, 0.0]
+    return list(struct.unpack('<fff', bytes(sr.data[:12])))
+
+
+def _write_mwgt(ov: Record, vals) -> None:
+    data = struct.pack('<fff', *(max(0.0, min(1.0, v)) for v in vals))
+    sr = ov.get_subrecord('MWGT')
+    if sr is None:
         ov.add_subrecord('MWGT', data)
     else:
-        mwgt.data = bytearray(data)
-        mwgt.modified = True
+        sr.data = bytearray(data)
+        sr.modified = True
 
 
 def _set_fmin(record: Record, value: float) -> None:

@@ -365,16 +365,37 @@ def _apply_row(cust: Customization, row: dict, source: str) -> None:
                 _parse_headpart_value(row[key])
 
 
+_WEIGHT_AXES = {'thin': 0, 'muscle': 1, 'muscular': 1, 'musc': 1, 'fat': 2}
+
+
 def _parse_weight_range(wr, race: str, source: str):
-    """Accept [[lo,hi],[lo,hi],[lo,hi]] (thin/musc/fat). Returns list of
-    3 (lo,hi) tuples in 0-1 space, or None on malformed input."""
-    if (not isinstance(wr, list) or len(wr) != 3
-            or any(not isinstance(p, list) or len(p) != 2 for p in wr)):
-        log.warning("%s: %s weight_range must be 3 [lo,hi] pairs, got %r",
-                    source, race, wr)
+    """Parse a weight_range into `{axis_index: (lo, hi)}` (0-1) for the
+    SPECIFIED axes (0=thin, 1=muscular, 2=fat).
+
+    Preferred form is a table keyed by axis name, e.g.
+    `weight_range = {thin = [40, 100], fat = [0, 20]}` — pin the axes you care
+    about and OMIT one to make it the slack that brings the body to sum 1. The
+    legacy `[[lo,hi],[lo,hi],[lo,hi]]` (all three, in order) is still accepted.
+    0-100 -> 0-1. Returns None on malformed/empty input."""
+    spec = {}
+    if isinstance(wr, dict):
+        for name, rng in wr.items():
+            idx = _WEIGHT_AXES.get(str(name).strip().lower())
+            if idx is None:
+                log.warning("%s: %s weight_range: unknown axis %r (use "
+                            "thin/muscle/fat)", source, race, name)
+                continue
+            if not (isinstance(rng, list) and len(rng) == 2):
+                log.warning("%s: %s weight_range.%s must be [lo, hi], got %r",
+                            source, race, name, rng)
+                continue
+            spec[idx] = (float(rng[0]) / 100.0, float(rng[1]) / 100.0)
+    elif (isinstance(wr, list) and len(wr) == 3
+          and all(isinstance(p, list) and len(p) == 2 for p in wr)):
+        for i, (lo, hi) in enumerate(wr):
+            spec[i] = (float(lo) / 100.0, float(hi) / 100.0)
+    else:
+        log.warning("%s: %s weight_range must be a {axis = [lo,hi]} table or "
+                    "three [lo,hi] pairs, got %r", source, race, wr)
         return None
-    out = []
-    for lo, hi in wr:
-        # Scheme uses 0-100; MWGT axes are 0-1 floats.
-        out.append((float(lo) / 100.0, float(hi) / 100.0))
-    return out
+    return spec or None
