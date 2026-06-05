@@ -6,7 +6,7 @@ fill to sum 1.0 preserving build. Garbage MWGT (out of [0,1]) is passed through.
 
 import pytest
 
-from furrifier_fo4.furrify import _compute_weights, _weight_is_garbage
+from furrifier_fo4.furrify import _compute_weights, _weight_source
 
 FLT_MAX = 3.4028234663852886e38
 
@@ -66,8 +66,22 @@ def test_pinned_ceiling_holds_for_real_builds():
         assert all(x >= -1e-9 for x in v)
 
 
-def test_garbage_detection():
-    assert _weight_is_garbage([FLT_MAX, FLT_MAX, FLT_MAX])
-    assert _weight_is_garbage([0.5, -0.1, 0.2])
-    assert _weight_is_garbage([0.5, 1.5, 0.2])
-    assert not _weight_is_garbage([0.0, 0.5, 1.0])
+def test_weight_source_valid_passthrough_garbage_random():
+    # Valid axes kept as-is; FLT_MAX axes become a pseudo-random fraction in [0,1].
+    src = _weight_source([0.3, FLT_MAX, 0.9], 'npc')
+    assert src[0] == 0.3 and src[2] == 0.9
+    assert 0.0 <= src[1] <= 1.0 and src[1] not in (0.3, 0.9)
+    # Deterministic per signature; varies across signatures.
+    assert _weight_source([FLT_MAX] * 3, 'npc') == _weight_source([FLT_MAX] * 3, 'npc')
+    assert _weight_source([FLT_MAX] * 3, 'a') != _weight_source([FLT_MAX] * 3, 'b')
+
+
+def test_all_random_maps_into_band_sums_to_one():
+    # All-FLT_MAX NPC with a weight_range: each axis a race-appropriate roll.
+    spec = {0: (0.4, 1.0), 2: (0.0, 0.2)}
+    for i in range(100):
+        src = _weight_source([FLT_MAX] * 3, f'rng_{i}')
+        v = _compute_weights(spec, src)
+        assert 0.4 - 1e-9 <= v[0] <= 1.0 + 1e-9    # thin stays in its band
+        assert v[2] <= 0.2 + 1e-9                  # fat stays in its band
+        assert _sum1(v)

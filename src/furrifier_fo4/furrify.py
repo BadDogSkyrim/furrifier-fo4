@@ -206,43 +206,46 @@ def apply_furry(patch: Plugin, ov: Record, furry_race: Record,
                     color_scheme=scheme, categories=cats)
 
     # 6. Weight: remap MWGT into the race's weight_range so thin/musc/fat sum to
-    # 1.0, preserving the NPC's build. No-op when the race has no weight_range or
-    # the NPC's MWGT is garbage (FLT_MAX template sentinel).
-    if sex is not None:
+    # 1.0. Valid axes map from the NPC's build; FLT_MAX ("random weight") axes
+    # get a race-appropriate pseudo-random value. No-op without a weight_range.
+    if sex is not None and signature:
         spec = (customization.weight_range(cust_key, sex)
                 if (customization is not None and cust_key) else None)
-        _apply_weight(ov, spec)
+        _apply_weight(ov, spec, signature)
 
     ov.modified = True
     return ov
 
 
-def _apply_weight(ov: Record, spec) -> None:
+def _apply_weight(ov: Record, spec, signature: str) -> None:
     """Remap MWGT (thin/muscular/fat) into a race's weight_range so the three
-    axes sum to 1.0, preserving the NPC's build.
+    axes sum to 1.0.
 
     `spec` is `{axis_index: (lo, hi)}` (0-1) for the axes the weight_range pins
-    (0=thin, 1=muscular, 2=fat), or None. LEFT UNTOUCHED (pass-through) when
-    there's no weight_range, or when the NPC's MWGT is garbage — any axis
-    outside [0,1], e.g. the FLT_MAX (3.4e38) sentinel many leveled/template NPCs
-    carry, whose real body comes from their template. Otherwise the pinned axes
-    are mapped linearly from the original value into their band and the rest
-    fill to sum 1 (see `_compute_weights`)."""
-    raw = _read_mwgt(ov)
-    if not spec or _weight_is_garbage(raw):
+    (0=thin, 1=muscular, 2=fat), or None. With NO weight_range the MWGT is left
+    untouched. Otherwise each axis gets a 0-1 source — the NPC's own value if
+    valid, or a pseudo-random fraction if it's the FLT_MAX "random weight" flag
+    (out of [0,1]) — which is then mapped into the band; the rest fill to sum 1
+    (see `_compute_weights`)."""
+    if not spec:
         return
-    _write_mwgt(ov, _compute_weights(spec, raw))
+    src = _weight_source(_read_mwgt(ov), signature)
+    _write_mwgt(ov, _compute_weights(spec, src))
 
 
-def _weight_is_garbage(raw) -> bool:
-    """True if any MWGT axis is outside [0,1] (e.g. the FLT_MAX template
-    sentinel, or NaN) — such records are passed through untouched."""
-    return any(not (0.0 <= v <= 1.0) for v in raw)
+def _weight_source(raw, signature: str):
+    """Per-axis 0-1 source for the remap: the NPC's value if valid, else a
+    pseudo-random fraction. FLT_MAX (and any out-of-[0,1] value) is the CK
+    'random weight' flag; rather than leave that axis to the engine's vanilla
+    roll, we roll a race-appropriate value (deterministic on signature)."""
+    return [v if 0.0 <= v <= 1.0
+            else hash_string(signature, 5501 + i * 137, 1001) / 1000.0
+            for i, v in enumerate(raw)]
 
 
 def _compute_weights(spec, raw):
-    """Map a valid 0-1 MWGT into `spec` so the three axes sum to 1.0, preserving
-    build. Each pinned axis maps linearly (orig 0 -> lo, orig 1 -> hi). Then:
+    """Map a 0-1 source per axis into `spec` so the three sum to 1.0. Each pinned
+    axis maps linearly (source 0 -> lo, source 1 -> hi). Then:
       - 3 pinned: normalize the three mapped values to sum 1;
       - 2 pinned: the omitted axis takes the remainder (1 - sum of the two);
       - 1 pinned: the other two share the remainder in their ORIGINAL ratio
