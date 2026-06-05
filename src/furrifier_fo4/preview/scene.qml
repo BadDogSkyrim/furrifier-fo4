@@ -38,7 +38,7 @@ Item {
         anchors.fill: parent
 
         environment: SceneEnvironment {
-            clearColor: "#121410"
+            clearColor: "#1f2733"   // dark, unsaturated blue
             backgroundMode: SceneEnvironment.Color
             antialiasingMode: SceneEnvironment.MSAA
             antialiasingQuality: SceneEnvironment.High
