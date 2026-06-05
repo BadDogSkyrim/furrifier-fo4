@@ -170,6 +170,10 @@ class FurrifierWindow(QMainWindow):
         # Last committed Data dir, to suppress no-op reloads on focus-out.
         self._last_data_dir: str = ""
         self._build()
+        # Install the log handler up front (not just during a Run) so warnings
+        # emitted while the preview builds its catalog — e.g. a malformed color
+        # rule in races/*.toml — surface in the log pane instead of vanishing.
+        self._install_log_handler()
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -425,6 +429,7 @@ class FurrifierWindow(QMainWindow):
         if self._worker is not None and self._worker.isRunning():
             return
         config = self._config()
+        self.log.clear()  # fresh pane per run (the log FILE keeps accumulating)
         self._install_log_handler()
         self.run_btn.setEnabled(False)
         self.status.setText("Running…")
@@ -436,12 +441,10 @@ class FurrifierWindow(QMainWindow):
     def _on_done(self, code: int) -> None:
         self.status.setText("Done" if code == 0 else f"Finished (exit {code})")
         self.run_btn.setEnabled(True)
-        self._remove_log_handler()
 
     def _on_failed(self, message: str) -> None:
         self.status.setText(f"Failed: {message}")
         self.run_btn.setEnabled(True)
-        self._remove_log_handler()
 
     # --------------------------------------------------------------- logs ---
 

@@ -338,8 +338,15 @@ def _apply_row(cust: Customization, row: dict, source: str) -> None:
             continue
         if isinstance(val, list) and val and all(isinstance(e, list) for e in val):
             inline[key] = val
+        elif isinstance(val, list):
+            # Looks like an attempted inline color rule but isn't a list of
+            # [key, value] pairs (e.g. a flat `["probability", 1.0, [...]]`).
+            log.warning("%s: %s: malformed color rule %r - expected a list of "
+                        "[key, value] pairs like "
+                        "[[\"probability\", 1.0], [\"FFOFurWhite\", 0.8]], got %r; "
+                        "rule ignored", source, race, key, val)
         else:
-            log.warning("%s: %s: unrecognized race_customization key %r",
+            log.warning("%s: %s: unrecognized race_customization key %r - ignored",
                         source, race, key)
     if inline:
         scheme_name = f"__inline__{race}"

@@ -51,7 +51,6 @@ def run_furrification(config: FurrifierConfig) -> int:
 
     mins, secs = divmod(int(round(time.perf_counter() - t0)), 60)
     fg = stats.get("facegen") or {}
-    log.info("Done in %dm %02ds", mins, secs)
     log.info("  Furrified:  %d / %d NPCs", stats["furrified"], stats["total"])
     log.info("  Left human: %d   gated: %d   no-child-race: %d   preserved: %d",
              stats["left_human"], stats["gated"], stats["no_child_race"],
@@ -67,6 +66,9 @@ def run_furrification(config: FurrifierConfig) -> int:
     by_race = stats.get("race_counts") or {}
     for race, n in sorted(by_race.items(), key=lambda kv: -kv[1]):
         log.info("      %-22s %d", race, n)
+    # The timing line is intentionally LAST so it's the final thing in the log
+    # pane / console after every pass and the stats summary.
+    log.info("Done in %dm %02ds", mins, secs)
     return 0
 
 
