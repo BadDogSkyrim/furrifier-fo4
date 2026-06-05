@@ -205,53 +205,73 @@ def apply_furry(patch: Plugin, ov: Record, furry_race: Record,
         apply_tints(patch, ov, race_edid, sex, signature, race_tints,
                     color_scheme=scheme, categories=cats)
 
-    # 6. Weight: set MWGT so thin/musc/fat sum to 1.0 (FO4 over-applies the body
-    # morphs past 1 -> super-fat/super-thin). Runs for EVERY NPC: a weight_range
-    # pins axes + a slack axis; with none, the NPC's own MWGT is normalized.
-    if sex is not None and signature:
+    # 6. Weight: remap MWGT into the race's weight_range so thin/musc/fat sum to
+    # 1.0, preserving the NPC's build. No-op when the race has no weight_range or
+    # the NPC's MWGT is garbage (FLT_MAX template sentinel).
+    if sex is not None:
         spec = (customization.weight_range(cust_key, sex)
                 if (customization is not None and cust_key) else None)
-        _apply_weight(ov, spec, signature)
+        _apply_weight(ov, spec)
 
     ov.modified = True
     return ov
 
 
-def _apply_weight(ov: Record, spec, signature: str) -> None:
-    """Set MWGT (thin/muscular/fat) so the three axes sum to 1.0.
+def _apply_weight(ov: Record, spec) -> None:
+    """Remap MWGT (thin/muscular/fat) into a race's weight_range so the three
+    axes sum to 1.0, preserving the NPC's build.
 
-    `spec` is `{axis_index: (lo, hi)}` (0-1) for the axes a race's weight_range
-    pins (0=thin, 1=muscular, 2=fat), or None. With a spec: each pinned axis is
-    picked in its band (hashed on signature), and any OMITTED axis absorbs the
-    residual `1 - sum(pinned)` so the total is exactly 1 — the slack axis (two
-    omitted split it). If all three are pinned, pick then normalize to 1 (best
-    effort; may leave the bands). With no spec, the NPC's existing MWGT is
-    normalized to 1 (its build, de-extremed). All-zero MWGT stays the race's
-    base body."""
-    _write_mwgt(ov, _compute_weights(spec, _read_mwgt(ov), signature))
+    `spec` is `{axis_index: (lo, hi)}` (0-1) for the axes the weight_range pins
+    (0=thin, 1=muscular, 2=fat), or None. LEFT UNTOUCHED (pass-through) when
+    there's no weight_range, or when the NPC's MWGT is garbage — any axis
+    outside [0,1], e.g. the FLT_MAX (3.4e38) sentinel many leveled/template NPCs
+    carry, whose real body comes from their template. Otherwise the pinned axes
+    are mapped linearly from the original value into their band and the rest
+    fill to sum 1 (see `_compute_weights`)."""
+    raw = _read_mwgt(ov)
+    if not spec or _weight_is_garbage(raw):
+        return
+    _write_mwgt(ov, _compute_weights(spec, raw))
 
 
-def _compute_weights(spec, raw, signature: str):
-    """Pure MWGT computation (see `_apply_weight`): returns [thin, musc, fat]
-    summing to 1.0 (or all-zero if there's nothing to morph)."""
+def _weight_is_garbage(raw) -> bool:
+    """True if any MWGT axis is outside [0,1] (e.g. the FLT_MAX template
+    sentinel, or NaN) — such records are passed through untouched."""
+    return any(not (0.0 <= v <= 1.0) for v in raw)
+
+
+def _compute_weights(spec, raw):
+    """Map a valid 0-1 MWGT into `spec` so the three axes sum to 1.0, preserving
+    build. Each pinned axis maps linearly (orig 0 -> lo, orig 1 -> hi). Then:
+      - 3 pinned: normalize the three mapped values to sum 1;
+      - 2 pinned: the omitted axis takes the remainder (1 - sum of the two);
+      - 1 pinned: the other two share the remainder in their ORIGINAL ratio
+        (even split if the NPC had neither).
+    If the pinned axes already exceed 1 the omitted go to 0 and all are
+    normalized down (best effort). Assumes >=1 pinned and valid raw."""
+    def mapped(i):
+        lo, hi = spec[i]
+        return lo + raw[i] * (hi - lo)
+
+    omitted = [i for i in range(3) if i not in spec]
     vals = [0.0, 0.0, 0.0]
-    if spec:
-        omitted = [i for i in range(3) if i not in spec]
-        for i, (lo, hi) in spec.items():
-            f = hash_string(signature, 5501 + i * 137, 1001) / 1000.0
-            vals[i] = lo + f * (hi - lo) if hi > lo else lo
-        if omitted:
-            residual = 1.0 - sum(vals[i] for i in spec)
-            if residual >= 0.0:
-                share = residual / len(omitted)
-                for i in omitted:
-                    vals[i] = share
-            else:
-                vals = _normalize(vals)   # pinned axes exceed 1 -> best effort
+    for i in spec:
+        vals[i] = mapped(i)
+    if not omitted:                          # all three pinned
+        return _normalize(vals)
+    residual = 1.0 - sum(vals[i] for i in spec)
+    if residual < 0.0:                       # pinned exceed 1 -> best effort
+        return _normalize(vals)
+    if len(omitted) == 1:
+        vals[omitted[0]] = residual
+    else:                                    # split remainder by original ratio
+        a, b = omitted
+        denom = raw[a] + raw[b]
+        if denom > 0.0:
+            vals[a] = residual * raw[a] / denom
+            vals[b] = residual * raw[b] / denom
         else:
-            vals = _normalize(vals)       # all three pinned -> normalize to 1
-    else:
-        vals = _normalize(raw) if sum(raw) > 0.0 else list(raw)
+            vals[a] = vals[b] = residual / 2.0
     return vals
 
 

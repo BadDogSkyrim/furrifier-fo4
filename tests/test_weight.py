@@ -1,56 +1,73 @@
-"""Tests for the MWGT (body weight) summing-to-1 algorithm (furrify._compute_weights)."""
+"""Tests for the MWGT (body weight) remap (furrify._compute_weights / _weight_is_garbage).
+
+Pinned axes map linearly from the NPC's original value into their band; the rest
+fill to sum 1.0 preserving build. Garbage MWGT (out of [0,1]) is passed through.
+"""
 
 import pytest
 
-from furrifier_fo4.furrify import _compute_weights
+from furrifier_fo4.furrify import _compute_weights, _weight_is_garbage
+
+FLT_MAX = 3.4028234663852886e38
 
 
-def _sum1(vals):
-    return abs(sum(vals) - 1.0) < 1e-6
+def _sum1(v):
+    return abs(sum(v) - 1.0) < 1e-6
 
 
-def test_slack_axis_absorbs_residual():
-    # thin + fat pinned (fixed), muscle (1) omitted -> residual.
-    v = _compute_weights({0: (0.4, 0.4), 2: (0.2, 0.2)}, [0, 0, 0], 'npc')
-    assert v == pytest.approx([0.4, 0.4, 0.2])   # muscle = 1 - 0.4 - 0.2
+def test_pinned_axis_maps_linearly():
+    # thin band [0.4, 1.0]: orig 0 -> 0.4, orig 1 -> 1.0, orig 0.5 -> 0.7.
+    assert _compute_weights({0: (0.4, 1.0)}, [0.0, 0.5, 0.5])[0] == pytest.approx(0.4)
+    assert _compute_weights({0: (0.4, 1.0)}, [1.0, 0.5, 0.5])[0] == pytest.approx(1.0)
+    assert _compute_weights({0: (0.4, 1.0)}, [0.5, 0.5, 0.5])[0] == pytest.approx(0.7)
+
+
+def test_one_pinned_others_keep_original_ratio():
+    # thin pinned -> 0.5; muscle:fat original 0.6:0.2 = 3:1; residual 0.5 split 3:1.
+    v = _compute_weights({0: (0.5, 0.5)}, [0.0, 0.6, 0.2])
+    assert v == pytest.approx([0.5, 0.375, 0.125])
     assert _sum1(v)
 
 
-def test_two_omitted_split_residual():
-    v = _compute_weights({0: (0.6, 0.6)}, [0, 0, 0], 'npc')
-    assert v == pytest.approx([0.6, 0.2, 0.2])   # muscle + fat each get half of 0.4
+def test_one_pinned_others_both_zero_even_split():
+    v = _compute_weights({0: (0.6, 0.6)}, [0.0, 0.0, 0.0])
+    assert v == pytest.approx([0.6, 0.2, 0.2])
     assert _sum1(v)
 
 
-def test_all_three_pinned_normalized():
-    v = _compute_weights({0: (0.5, 0.5), 1: (0.5, 0.5), 2: (0.5, 0.5)},
-                         [0, 0, 0], 'npc')
-    assert all(abs(x - 1 / 3) < 1e-6 for x in v)   # 0.5/1.5 each
+def test_two_pinned_remainder_fills_to_one():
+    # thin -> 0.4, fat -> 0.2 (fixed bands); muscle (omitted) = 0.4.
+    v = _compute_weights({0: (0.4, 0.4), 2: (0.2, 0.2)}, [0.5, 0.5, 0.5])
+    assert v == pytest.approx([0.4, 0.4, 0.2])
     assert _sum1(v)
 
 
-def test_pinned_exceed_one_best_effort_normalized():
-    # thin + fat pinned to 0.8 each (sum 1.6 > 1); slack can't go negative.
-    v = _compute_weights({0: (0.8, 0.8), 2: (0.8, 0.8)}, [0, 0, 0], 'npc')
+def test_two_pinned_over_one_best_effort_normalized():
+    v = _compute_weights({0: (0.8, 0.8), 2: (0.8, 0.8)}, [0.5, 0.5, 0.5])
     assert v == pytest.approx([0.5, 0.0, 0.5])
     assert _sum1(v)
 
 
-def test_no_spec_normalizes_raw_mwgt():
-    v = _compute_weights(None, [0.4, 0.4, 0.4], 'npc')   # sum 1.2 -> normalize
+def test_three_pinned_mapped_then_normalized():
+    # all map to 0.5 -> normalize -> 1/3 each.
+    v = _compute_weights({0: (0.5, 0.5), 1: (0.5, 0.5), 2: (0.5, 0.5)},
+                         [0.5, 0.5, 0.5])
     assert all(abs(x - 1 / 3) < 1e-6 for x in v)
     assert _sum1(v)
 
 
-def test_no_spec_all_zero_stays_base_body():
-    assert _compute_weights(None, [0.0, 0.0, 0.0], 'npc') == [0.0, 0.0, 0.0]
-
-
-def test_pinned_ceiling_always_respected_across_signatures():
-    # Cheetah: fat capped at 0.2, thin 0.4-1.0, muscle the slack.
+def test_pinned_ceiling_holds_for_real_builds():
+    # Cheetah: fat band [0, 0.2]; even a maxed-fat NPC can't exceed 0.2.
     spec = {0: (0.4, 1.0), 2: (0.0, 0.2)}
-    for i in range(200):
-        v = _compute_weights(spec, [0, 0, 0], f'cheetah_{i}')
-        assert v[2] <= 0.2 + 1e-9         # fat never exceeds its ceiling
+    for thin, musc, fat in [(0, 0, 0), (1, 1, 1), (0.3, 0.6, 0.9), (1, 0, 0)]:
+        v = _compute_weights(spec, [thin, musc, fat])
+        assert v[2] <= 0.2 + 1e-9
         assert _sum1(v)
         assert all(x >= -1e-9 for x in v)
+
+
+def test_garbage_detection():
+    assert _weight_is_garbage([FLT_MAX, FLT_MAX, FLT_MAX])
+    assert _weight_is_garbage([0.5, -0.1, 0.2])
+    assert _weight_is_garbage([0.5, 1.5, 0.2])
+    assert not _weight_is_garbage([0.0, 0.5, 1.0])
