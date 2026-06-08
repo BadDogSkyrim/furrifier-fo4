@@ -56,6 +56,63 @@ def base_plugin_for(npc, patch) -> str:
     return patch.file_path.name if patch.file_path else "patch.esp"
 
 
+def _npc_morphs(npc, race_edid, sex, race_morphs) -> list:
+    """Read an NPC's chargen face morphs as [(chargen-tri-morph-name, weight)].
+
+    The NPC's MSDK keys are preset MPPIs; map each to its MPPM (the .tri shape-
+    key name) via the RACE. Unmappable keys (e.g. RACE 'Morph Values' slider
+    keys, which aren't chargen shape keys) are skipped. Empty without
+    `race_morphs` or MSDK/MSDV.
+    """
+    if race_morphs is None:
+        return []
+    msdk = npc.get_subrecord("MSDK")
+    msdv = npc.get_subrecord("MSDV")
+    if msdk is None or msdv is None:
+        return []
+    n = min(len(msdk.data) // 4, len(msdv.data) // 4)
+    keys = struct.unpack_from(f"<{n}I", msdk.data)
+    vals = struct.unpack_from(f"<{n}f", msdv.data)
+    out = []
+    for key, weight in zip(keys, vals):
+        mppm = race_morphs.mppm_for(race_edid, sex, key)
+        if mppm:
+            out.append((mppm, weight))
+    return out
+
+
+def _npc_regions(npc) -> list:
+    """[(fmri, (7 floats))] from the NPC's Face Morph (FMRI/FMRS) records — the
+    region bone transforms the facebone bake deforms."""
+    out = []
+    pending = None
+    for sr in npc.subrecords:
+        s = sr.signature
+        if s == "FMRI" and len(sr.data) >= 4:
+            pending = int.from_bytes(sr.data[:4], "little")
+        elif s == "FMRS" and pending is not None and len(sr.data) >= 28:
+            out.append((pending, struct.unpack_from("<7f", sr.data)))
+            pending = None
+    return out
+
+
+def _facebone_deltas(npc, race_edid, sex, bone_regions) -> dict:
+    """{bare-bone-name: 4x4 delta (list)} for the NPC's region morphs, or {}.
+    Each region's FMRI maps (via the FacialBoneRegions JSON) to its bones, whose
+    local delta transforms come from the bone Minima/Maxima + the FMRS sliders."""
+    if bone_regions is None:
+        return {}
+    regions = _npc_regions(npc)
+    if not regions:
+        return {}
+    from .facebones import bone_delta_matrix
+    deltas: dict = {}
+    for fmri, fmrs in regions:
+        for bone, mn, mx in bone_regions.bones_for_fmri(race_edid, sex, fmri):
+            deltas[bone] = bone_delta_matrix(mn, mx, fmrs).tolist()
+    return deltas
+
+
 def build_facegen_for_patch(patch, plugin_set, data_dir,
                             output_dir: Optional[str] = None,
                             limit: Optional[int] = None,
@@ -71,8 +128,12 @@ def build_facegen_for_patch(patch, plugin_set, data_dir,
                             races_by_edid=None,
                             resolver=None,
                             base_heads=None,
+                            race_morphs=None,
+                            bone_regions=None,
                             workers: Optional[int] = None,
-                            throttle: bool = False) -> dict:
+                            throttle: bool = False,
+                            progress=None,
+                            cancel_event=None) -> dict:
     """Bake the FaceCustomization texture set + facegeom nif for every NPC
     override in `patch`.
 
@@ -97,7 +158,7 @@ def build_facegen_for_patch(patch, plugin_set, data_dir,
     set lookups) and a `ProcessPoolExecutor` bakes them; `throttle` runs a single
     BELOW_NORMAL worker so the box stays usable. Returns a stats dict.
     """
-    from .headparts_resolve import resolve_headparts
+    from .headparts_resolve import resolve_headparts, HDPT_FACE
 
     out_root = Path(output_dir) if output_dir else Path(data_dir)
     facecust_root = out_root.joinpath(*_FACECUST_DIR.split("/"))
@@ -192,12 +253,27 @@ def build_facegen_for_patch(patch, plugin_set, data_dir,
             if exclude_hdpt_types:
                 headparts = [h for h in headparts
                              if h.get("hdpt_type") not in exclude_hdpt_types]
+            # Chargen face morphs: read the NPC's MSDK/MSDV back out, resolve
+            # each preset key (MPPI) to its chargen .tri shape-key name (MPPM),
+            # and hang the (name, weight) list on the Face head part so the bake
+            # can deform its verts. Region (FMRI/FMRS) baking is a later phase.
+            morphs = _npc_morphs(npc, race_edid, sex, race_morphs)
+            fb_deltas = _facebone_deltas(npc, race_edid, sex, bone_regions)
+            if morphs or fb_deltas:
+                for h in headparts:
+                    if h.get("hdpt_type") == HDPT_FACE:
+                        if morphs:
+                            h["morphs"] = morphs
+                        if fb_deltas:
+                            h["facebone_deltas"] = fb_deltas
+                        break
             info["headparts"] = headparts
             info["nif_path"] = str(nif_dir_for(plugin) / f"{form_id}.nif")
             info["hair_palette_scale"] = hair_scale_for(npc)
         return info, None
 
     from ._worker import (_WorkItem, bake_from_info, pick_worker_count)
+    from ..session import _check_cancel
 
     try:
         # Resolve phase (serial, parent): cheap record/path lookups.
@@ -217,17 +293,24 @@ def build_facegen_for_patch(patch, plugin_set, data_dir,
         for d in set(_tex_dirs.values()) | set(_nif_dirs.values()):
             d.mkdir(parents=True, exist_ok=True)
 
+        total = len(work)
+        if progress is not None:
+            progress("Baking FaceGen", 0, total)
         # Bake phase: serial when a single worker (or trivial work), else pooled.
         n_workers = pick_worker_count(throttle) if workers is None \
             else max(1, workers)
         if n_workers <= 1 or len(work) <= 1:
-            for info in work:
+            for i, info in enumerate(work):
+                _check_cancel(cancel_event)
                 _accumulate(stats, bake_from_info(info, resolver))
+                if progress is not None:
+                    progress("Baking FaceGen", i + 1, total)
         else:
             log.info("facegen: baking %d NPCs across %d workers%s",
                      len(work), n_workers, " (throttled)" if throttle else "")
             _bake_pooled([_WorkItem(i["edid"], i) for i in work],
-                         n_workers, throttle, str(data_dir), stats)
+                         n_workers, throttle, str(data_dir), stats,
+                         progress=progress, cancel_event=cancel_event)
     finally:
         if own_resolver:
             resolver.close()
@@ -248,14 +331,19 @@ def _accumulate(stats: dict, r) -> None:
 
 
 def _bake_pooled(items, n_workers: int, throttle: bool, data_dir: str,
-                 stats: dict) -> None:
+                 stats: dict, progress=None, cancel_event=None) -> None:
     """Bake `items` across `n_workers` spawned processes, forwarding worker logs
     to the parent's handlers (file / stream / GUI pane) via a QueueListener so
-    progress is visible everywhere the serial path's logs were."""
+    progress is visible everywhere the serial path's logs were.
+
+    On cancel, the executor is shut down with `cancel_futures=True` so queued
+    (not-yet-started) bakes are dropped rather than drained — only the handful
+    already in flight finish."""
     import logging.handlers
     import multiprocessing as mp
     from concurrent.futures import ProcessPoolExecutor
     from ._worker import _worker_init, _bake_one
+    from ..session import _check_cancel, CancelledError
 
     ctx = mp.get_context("spawn")
     log_queue = ctx.Queue()
@@ -263,12 +351,20 @@ def _bake_pooled(items, n_workers: int, throttle: bool, data_dir: str,
     listener = logging.handlers.QueueListener(
         log_queue, *logging.getLogger().handlers, respect_handler_level=True)
     listener.start()
+    total = len(items)
     try:
         with ProcessPoolExecutor(
                 max_workers=n_workers, mp_context=ctx,
                 initializer=_worker_init,
                 initargs=(data_dir, throttle, log_queue, level)) as ex:
-            for r in ex.map(_bake_one, items, chunksize=1):
-                _accumulate(stats, r)
+            try:
+                for i, r in enumerate(ex.map(_bake_one, items, chunksize=1)):
+                    _accumulate(stats, r)
+                    if progress is not None:
+                        progress("Baking FaceGen", i + 1, total)
+                    _check_cancel(cancel_event)
+            except CancelledError:
+                ex.shutdown(wait=True, cancel_futures=True)
+                raise
     finally:
         listener.stop()

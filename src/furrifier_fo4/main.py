@@ -9,14 +9,21 @@ from __future__ import annotations
 import logging
 import sys
 import time
+import threading
+from typing import Optional
 
 from .config import FurrifierConfig, build_parser, normalize_argv, setup_logging
 from . import session
+from .session import ProgressCallback, CancelledError
 
 log = logging.getLogger(__name__)
 
 
-def run_furrification(config: FurrifierConfig) -> int:
+def run_furrification(
+        config: FurrifierConfig,
+        world=None,
+        progress: Optional[ProgressCallback] = None,
+        cancel_event: Optional[threading.Event] = None) -> int:
     log.info("Fallout 4 Furrifier")
     log.info("  Scheme:        %s", config.race_scheme)
     log.info("  Patch:         %s", config.patch_filename)
@@ -41,7 +48,14 @@ def run_furrification(config: FurrifierConfig) -> int:
             refurrify_existing=config.refurrify_existing,
             workers=config.workers,
             throttle=config.throttle,
+            world=world,
+            progress=progress,
+            cancel_event=cancel_event,
         )
+    except CancelledError:
+        # The GUI worker sets the cancel flag; let it propagate so the worker
+        # reports a clean cancel instead of a failure. The CLI never cancels.
+        raise
     except FileNotFoundError as exc:
         log.error("%s", exc)
         return 1

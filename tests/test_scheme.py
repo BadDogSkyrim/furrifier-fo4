@@ -9,13 +9,37 @@ import tomllib
 
 import pytest
 
-from furrifier_fo4.loader import parse_scheme, SchemeError
+from furrifier_fo4.loader import (
+    parse_scheme, SchemeError, load_scheme, _lint_top_level, _SCHEME_KEYS)
 from furrifier_fo4.models import MatchRule, ClassDistribution, WeightedRace
 from furrifier_fo4.scheme import Scheme, NpcFacts
 
 
 def make_scheme(builtin="", scheme=""):
     return parse_scheme(tomllib.loads(builtin), tomllib.loads(scheme))
+
+
+def test_lint_warns_on_unknown_top_level_key(caplog):
+    # A [[facemorphs]] section misplaced in a scheme (it belongs in a race
+    # catalog) must warn loudly, not silently drop.
+    with caplog.at_level('WARNING'):
+        _lint_top_level({'class_probabilities': [], 'facemorphs': {}},
+                        _SCHEME_KEYS, 'single_race.toml')
+    msgs = [r.message for r in caplog.records]
+    assert any('unrecognized top-level key' in m and 'facemorphs' in m
+               and 'single_race.toml' in m for m in msgs)
+    # the recognized key isn't itself flagged (it appears only in the
+    # "expected one of …" hint, never as "key '…'")
+    assert not any("key 'class_probabilities'" in m for m in msgs)
+
+
+def test_shipped_schemes_have_no_stray_top_level_keys(caplog):
+    from furrifier_fo4.loader import list_available_schemes
+    with caplog.at_level('WARNING'):
+        for name in list_available_schemes():
+            load_scheme(name)
+    assert not any('unrecognized top-level key' in r.message
+                   for r in caplog.records)
 
 
 BUILTIN = """

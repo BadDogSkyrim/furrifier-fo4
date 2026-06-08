@@ -105,7 +105,8 @@ _HEADPART_PICKS = (
 def furrify_npc(patch: Plugin, npc: Record, furry_race: Record,
                 race_edid: str = None, sex=None, signature: str = None,
                 headpart_pools=None, race_tints=None,
-                customization=None, breed_name: str = None) -> Record:
+                customization=None, breed_name: str = None,
+                race_morphs=None, bone_regions=None) -> Record:
     """Create a furrified override of `npc` in `patch`, assigned to
     `furry_race`. Returns the new override record.
 
@@ -123,14 +124,16 @@ def furrify_npc(patch: Plugin, npc: Record, furry_race: Record,
     apply_furry(patch, ov, furry_race, race_edid=race_edid, sex=sex,
                 signature=signature, headpart_pools=headpart_pools,
                 race_tints=race_tints, customization=customization,
-                breed_name=breed_name)
+                breed_name=breed_name, race_morphs=race_morphs,
+                bone_regions=bone_regions)
     return ov
 
 
 def apply_furry(patch: Plugin, ov: Record, furry_race: Record,
                 race_edid: str = None, sex=None, signature: str = None,
                 headpart_pools=None, race_tints=None,
-                customization=None, breed_name: str = None) -> Record:
+                customization=None, breed_name: str = None,
+                race_morphs=None, bone_regions=None) -> Record:
     """Apply the furry appearance (race + skin + per-NPC headparts/tints/weight)
     to an EXISTING patch record `ov`, in place. `furrify_npc` calls this after
     copying a base; variant-expansion calls it on a freshly-minted variant copy
@@ -212,6 +215,18 @@ def apply_furry(patch: Plugin, ov: Record, furry_race: Record,
         spec = (customization.weight_range(cust_key, sex)
                 if (customization is not None and cust_key) else None)
         _apply_weight(ov, spec, signature)
+
+    # 7. Face morphs (head shaping): FMRI/FMRS region transforms + MSDK/MSDV
+    # morph-group presets, from the race/breed's [[facemorphs]] entry. The spec
+    # is keyed on the breed (cust_key); the RACE-record region/preset indices
+    # come from the engine race (race_edid). Replaces the morphs cleared above.
+    if (race_morphs is not None and race_edid and sex is not None
+            and customization is not None):
+        morph_spec = customization.facemorphs_for(cust_key)
+        if morph_spec is not None:
+            from .facemorphs import apply_facemorphs
+            apply_facemorphs(patch, ov, race_edid, sex, morph_spec,
+                             race_morphs, bone_regions)
 
     ov.modified = True
     return ov

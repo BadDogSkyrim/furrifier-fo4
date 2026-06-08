@@ -118,6 +118,21 @@ def _texture_overrides(hdpt, plugin_set) -> dict:
     return out
 
 
+def _chargen_tri(hdpt) -> Optional[str]:
+    """The HDPT's Chargen Morph tri (Parts entry NAM0 type 2 -> NAM1 filename),
+    meshes-relative, or None. This .tri holds the chargen shape-key (MPPM)
+    morphs the face-morph bake applies to the head verts."""
+    ptype = None
+    for sr in hdpt.subrecords:
+        if sr.signature == "NAM0" and len(sr.data) >= 4:
+            ptype = int.from_bytes(sr.data[:4], "little")
+        elif sr.signature == "NAM1" and ptype == 2:
+            rel = sr.data.rstrip(b"\x00").decode("cp1252", "replace")
+            if rel:
+                return "meshes\\" + rel.replace("/", "\\")
+    return None
+
+
 def _entry(hdpt, plugin_set) -> Optional[dict]:
     modl = hdpt.get_subrecord("MODL")
     if modl is None:
@@ -125,11 +140,17 @@ def _entry(hdpt, plugin_set) -> Optional[dict]:
     rel = modl.data.rstrip(b"\x00").decode("cp1252", "replace")
     if not rel:
         return None
+    src = "meshes\\" + rel.replace("/", "\\")
     return {
         "hdpt_edid": hdpt.editor_id,
         "hdpt_type": _hdpt_type(hdpt),
-        "source_nif": "meshes\\" + rel.replace("/", "\\"),
+        "source_nif": src,
+        # The sibling facebones-skinned head, for baking region (FMRI/FMRS)
+        # morphs (Face head only).
+        "facebones_nif": (src[:-4] + "_faceBones.nif"
+                          if src.lower().endswith(".nif") else None),
         "textures": _texture_overrides(hdpt, plugin_set),
+        "chargen_tri": _chargen_tri(hdpt),   # only the Face head uses this
     }
 
 

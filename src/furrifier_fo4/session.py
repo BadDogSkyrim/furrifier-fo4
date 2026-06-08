@@ -8,8 +8,9 @@ writes furrified overrides (G3 furrify_npc) into a new patch plugin.
 from __future__ import annotations
 
 import logging
+import threading
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from esplib import LoadOrder, PluginSet, Plugin, find_game_data, find_strings_dir
 
@@ -25,6 +26,22 @@ from .variants import (
 )
 
 log = logging.getLogger(__name__)
+
+# progress(phase_label, current, total) — total <= 0 means an indeterminate
+# phase (no count, e.g. plugin load). The GUI maps this onto a phase label +
+# progress bar; the CLI passes None (no callback).
+ProgressCallback = Callable[[str, int, int], None]
+
+
+class CancelledError(Exception):
+    """Raised at a cooperative cancel checkpoint when the run's cancel_event is
+    set. The GUI worker catches it to report a clean cancel; the CLI never sets
+    the event, so it never fires there."""
+
+
+def _check_cancel(event: Optional[threading.Event]) -> None:
+    if event is not None and event.is_set():
+        raise CancelledError()
 
 
 def furrifier_output_names(plugin_names, data_dir) -> set:
@@ -57,8 +74,15 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
         refurrify_existing: bool = True,
         variant_expansion: bool = True,
         workers: Optional[int] = None,
-        throttle: bool = False) -> dict:
+        throttle: bool = False,
+        world=None,
+        progress: Optional[ProgressCallback] = None,
+        cancel_event: Optional[threading.Event] = None) -> dict:
     """Furrify the load order with `scheme_name`, writing `patch_name`.
+
+    `world` (a FurryWorld) supplies a pre-loaded plugin set + indexes so the GUI
+    can share one load between the preview and the Run. When None, one is built
+    internally from `scheme_name`/`data_dir`/`races_dir`/`plugins` (CLI/tests).
 
     `plugins` overrides the load order (else uses the game's active list).
     `races_dir` holds the race catalog (races/*.toml) with child_race,
@@ -75,50 +99,46 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
     if only_faction is not None:
         only_factions = ({only_faction} if isinstance(only_faction, str)
                          else set(only_faction))
-    from .customization import load_customization
-    data = Path(data_dir or find_game_data('fo4'))
+
+    def emit(phase: str, current: int = 0, total: int = 0) -> None:
+        """Report progress and sample the cancel flag. Phase boundaries and the
+        per-NPC checkpoints are the only places a run can be cancelled — work
+        inside a phase (e.g. plugin load) is opaque, so we sample between."""
+        if progress is not None:
+            progress(phase, current, total)
+        _check_cancel(cancel_event)
+
+    # Build the shared world if the caller didn't hand one in (CLI/tests). The
+    # world loads the FULL active set (no patch stripping) and exposes
+    # `base_winning` — the winner among NON-furrifier plugins — so resolution
+    # always sees a vanilla/mod base record (a prior furry override never leaks
+    # in to fail the candidate gate). The Run reads the plugin set and writes a
+    # separate patch, so it never mutates the world.
+    own_world = world is None
+    if world is None:
+        from .world import FurryWorld
+        world = FurryWorld(scheme_name, data_dir=data_dir, races_dir=races_dir,
+                           plugins=plugins, progress=lambda m: emit(m))
+
+    data = world.data
     # Where to WRITE (patch + FaceGenData). Defaults to the read dir; point at
     # a mod-manager staging folder to keep the live Data tree clean.
     out = Path(output_dir) if output_dir else data
-    scheme = load_scheme(scheme_name)
-    scheme.build_indexes()
-
-    if races_dir is None:
-        races_dir = Path(__file__).resolve().parents[2] / 'races'
-    cust = load_customization(Path(races_dir))
-
-    if plugins is None:
-        # Only the ENABLED plugins (active_only) — without it, plugins.txt's
-        # inactive entries load too, furrifying NPCs from mods the user has
-        # turned off. LoadOrder iterates plugin-name strings, not objects.
-        plugins = list(LoadOrder.from_game('fo4', active_only=True))
-    # Never furrify against our own output: a previously-saved patch left in
-    # the load order would make every NPC resolve to its already-assigned furry
-    # race, which fails the Human*/Ghoul* candidate gate -> 0 furrified.
-    plugins = [p for p in plugins if p.lower() != patch_name.lower()]
-    # Other furrifier-output plugins (by TES4 author, any filename) in the load
-    # order make their NPCs "already furry". When re-furrifying, drop them so
-    # everyone resolves from their vanilla base; when preserving, keep them
-    # loaded and skip their NPCs in the loop below.
-    furrifier_names = furrifier_output_names(plugins, data)
-    if refurrify_existing and furrifier_names:
-        plugins = [p for p in plugins if p.lower() not in furrifier_names]
-        log.info("re-furrify: dropped %d prior furrifier output(s) from the "
-                 "load order", len(furrifier_names))
-    lo = LoadOrder.from_list(plugins, data_dir=str(data))
-    ps = PluginSet(lo)
-    strings = find_strings_dir('fo4')
-    for p in ps:
-        p.string_search_dirs = [str(strings)] if strings else []
-    ps.load_all()
-    log.info("loaded %d plugins", len(list(ps)))
-
-    extractor = FactExtractor(ps)
-    races = RaceLibrary(ps, child_races=cust.child_races)
-    from .headparts import HeadpartPools
-    headpart_pools = HeadpartPools(ps)
-    from .tints import RaceTints
-    race_tints = RaceTints(ps)
+    scheme = world.scheme
+    cust = world.cust
+    ps = world.ps
+    extractor = world.extractor
+    races = world.races
+    headpart_pools = world.headpart_pools
+    race_tints = world.race_tints
+    race_morphs = world.race_morphs
+    bone_regions = world.bone_regions
+    # Furrify from the base records; `furrified` = objids already furry (skipped
+    # in preserve mode). `winning_lvln` drives the template walk.
+    winning = world.base_winning
+    winning_lvln = world.winning_lvln
+    furrified = world.furrified
+    facts_for = world._facts_for
 
     patch = Plugin.new_plugin(str(out / patch_name), masters=[], game='fo4')
     patch.header.author = FURRIFIER_AUTHOR
@@ -128,37 +148,12 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
     # byte leaks through and RNAM/WNAM point at a nonexistent master index.
     patch.plugin_set = ps
 
-    # Winning NPC / LVLN per object id (last in load order wins). The LVLN map
-    # lets the template walk resolve leveled-actor template targets.
-    winning: dict[int, Record] = {}
-    winning_lvln: dict[int, Record] = {}
-    for plugin in ps:
-        for npc in plugin.get_records_by_signature('NPC_'):
-            winning[npc.form_id.value & 0xFFFFFF] = npc
-        for lvln in plugin.get_records_by_signature('LVLN'):
-            winning_lvln[lvln.form_id.value & 0xFFFFFF] = lvln
-
     stats = {'total': 0, 'gated': 0, 'furrified': 0, 'left_human': 0,
              'no_child_race': 0, 'preserved': 0, 'armas_patched': 0,
              'templated': 0, 'owner_furrified': 0,
              'expanded_owners': 0, 'variants': 0, 'race_counts': {}}
     # ghoul vanilla race EDID -> furry target race name, filled during the run.
     ghoul_targets: dict[str, str] = {}
-
-    # facts_lookup for family-leader resolution.
-    npc_by_edid: dict[str, Record] = {}
-    for npc in winning.values():
-        if npc.editor_id:
-            npc_by_edid[npc.editor_id] = npc
-    facts_cache: dict[str, object] = {}
-
-    def facts_for(edid):
-        if edid not in facts_cache:
-            n = npc_by_edid.get(edid)
-            facts_cache[edid] = (
-                extractor.facts_for(n, signature=scheme.signature_for(edid))
-                if n is not None else None)
-        return facts_cache[edid]
 
     def do_furrify(npc) -> bool:
         """Run the gate + write a furrified override for one record. Classifies
@@ -193,7 +188,8 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
                     signature=scheme.signature_for(npc.editor_id or ''),
                     headpart_pools=headpart_pools, race_tints=race_tints,
                     customization=cust,
-                    breed_name=(breed.name if breed else None))
+                    breed_name=(breed.name if breed else None),
+                    race_morphs=race_morphs, bone_regions=bone_regions)
         stats['furrified'] += 1
         stats['race_counts'][parent_race] = \
             stats['race_counts'].get(parent_race, 0) + 1
@@ -219,7 +215,8 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
         apply_furry(patch, record, furry_race, race_edid=parent_race, sex=sex,
                     signature=signature, headpart_pools=headpart_pools,
                     race_tints=race_tints, customization=cust,
-                    breed_name=(breed.name if breed else None))
+                    breed_name=(breed.name if breed else None),
+                    race_morphs=race_morphs, bone_regions=bone_regions)
         stats['furrified'] += 1
         stats['race_counts'][parent_race] = \
             stats['race_counts'].get(parent_race, 0) + 1
@@ -231,6 +228,7 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
     # many variants, from the placed-actor instance count. See variants.py.
     expand_K: dict = {}
     if variant_expansion:
+        emit("Counting placed instances…")     # indeterminate (ACHR scan)
         all_leaf_owners: set = set()
         for npc in winning.values():
             if is_templated_leaf(npc):
@@ -264,11 +262,17 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
     # chain. A heavily-shared owner (e.g. EncRaider01Template) is collected once.
     required_owners: set = set()
 
+    total_npcs = len(winning)
+    emit("Furrifying NPCs", 0, total_npcs)
     for npc in winning.values():
+        _check_cancel(cancel_event)
         stats['total'] += 1
-        # Preserve mode: an NPC whose winning override is itself furrifier
-        # output was already done by an earlier run — leave it untouched.
-        if not refurrify_existing and is_furrifier_plugin(npc.plugin):
+        if stats['total'] % 64 == 0:
+            emit("Furrifying NPCs", stats['total'], total_npcs)
+        objid = npc.form_id.value & 0xFFFFFF
+        # Preserve mode: an NPC already furrified by an earlier run (its absolute
+        # winner is furrifier output) is left untouched.
+        if not refurrify_existing and objid in furrified:
             stats['preserved'] += 1
             continue
         facts = facts_for(npc.editor_id or '') or extractor.facts_for(npc)
@@ -284,9 +288,9 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
         # Mark processed whether or not it furrified — a non-templated NPC that
         # gates out here must not be re-attempted (and re-counted) in the owner
         # pass below.
-        furrified = furrify_or_expand(npc)
-        done.add(npc.form_id.value & 0xFFFFFF)
-        if furrified and limit is not None and stats['furrified'] >= limit:
+        did_furrify = furrify_or_expand(npc)
+        done.add(objid)
+        if did_furrify and limit is not None and stats['furrified'] >= limit:
             log.info("hit limit of %d", limit)
             break
 
@@ -294,7 +298,9 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
     # Bypasses only_factions on purpose — a template usually carries no faction,
     # yet the in-faction leaf that points at it must still come out furry.
     if limit is None or stats['furrified'] < limit:
+        emit("Furrifying trait-owners", 0, len(required_owners))
         for owner_obj in required_owners:
+            _check_cancel(cancel_event)
             if owner_obj in done:
                 continue
             owner = winning.get(owner_obj)
@@ -310,6 +316,8 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
     # listing GhoulRace/GhoulChildRace need the furry target race added or
     # equipment won't render on furrified ghouls.
     from .armor import add_race_to_all_armor
+    if ghoul_targets:
+        emit("Fitting ghoul armor…")
     for ghoul_race_edid, target_name in ghoul_targets.items():
         ghoul_race = races.get(ghoul_race_edid)
         # The ARMA-fix target is the furry race actually assigned to ghouls;
@@ -321,6 +329,7 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
         stats['armas_patched'] += add_race_to_all_armor(
             patch, ps, ghoul_race, target_race)
 
+    emit("Saving patch…")
     patch.save()
     log.info("saved %s: %d furrified / %d total (%d preserved); "
              "%d templated leaves -> %d trait-owners furrified; "
@@ -336,8 +345,21 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
     # naturally scopes to them. Reads assets from data_dir, writes to output_dir.
     if bake_facegen:
         from .facegen import build_facegen_for_patch
+        # Reuse the world's facegen indexes (esp. the AssetResolver, whose BA2
+        # scan is the expensive part) so the bake doesn't rebuild them. The world
+        # owns the resolver, so build_facegen_for_patch leaves it open.
         stats['facegen'] = build_facegen_for_patch(
             patch, ps, str(data), output_dir=str(out),
-            output_size=facegen_size, workers=workers, throttle=throttle)
+            output_size=facegen_size, workers=workers, throttle=throttle,
+            race_morphs=race_morphs, bone_regions=bone_regions,
+            extractor=extractor, templates=world.tint_templates,
+            pools=headpart_pools, races_by_edid=world.races_by_edid,
+            resolver=world.resolver, base_heads=world.base_heads,
+            progress=progress, cancel_event=cancel_event)
 
+    emit("Done")
+    # Release the world we built ourselves (CLI/tests). A caller-supplied world
+    # (the GUI's) is left open — it owns its lifetime and reuses it.
+    if own_world:
+        world.close()
     return stats

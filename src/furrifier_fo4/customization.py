@@ -22,6 +22,7 @@ import tomllib
 from pathlib import Path
 from typing import Optional
 
+from .facemorphs import parse_facemorphs
 from .models import Breed, Sex
 from .util import hash_string
 
@@ -89,6 +90,8 @@ class Customization:
         # [Breed] in definition order for the probability roll.
         self.breeds: dict[str, Breed] = {}
         self.breeds_by_parent: dict[str, list] = {}
+        # race-or-breed name -> FaceMorphSpec (head-shaping morphs).
+        self.facemorphs: dict = {}
 
 
     def child_race(self, race_edid: str) -> Optional[str]:
@@ -170,6 +173,16 @@ class Customization:
                 return self.color_schemes.get(name)
         return None
 
+    def facemorphs_for(self, race_or_breed: str):
+        """FaceMorphSpec for a race-or-breed, or None. A breed uses its own
+        entry if defined, else its parent race's; no '*' wildcard (regions are
+        race-specific). [[facemorphs]] head-shaping morphs."""
+        breed = self.breeds.get(race_or_breed)
+        if breed is not None:
+            return (self.facemorphs.get(breed.name)
+                    or self.facemorphs.get(breed.parent_race_edid))
+        return self.facemorphs.get(race_or_breed)
+
     def categories_for(self, race_edid: str) -> dict:
         """{category_key_lower: [patterns]} for the race's file, or {} if its
         file defined no [tint_categories]. Drives which tint-layer names a
@@ -233,6 +246,13 @@ def _parse_headpart_value(val) -> HeadpartRule:
     return HeadpartRule()
 
 
+# The only top-level tables/keys a races/*.toml may define. A key outside this
+# set is almost always a typo (e.g. `color_scheme`, `breed`, `race_customizaton`)
+# whose whole section would otherwise vanish silently — warn loudly instead.
+_TOP_LEVEL_KEYS = {'race_customization', 'color_schemes', 'tint_categories',
+                   'breeds', 'facemorphs'}
+
+
 def load_customization(races_dir: Path) -> Customization:
     """Merge every races/*.toml [[race_customization]] row into one store.
 
@@ -244,6 +264,11 @@ def load_customization(races_dir: Path) -> Customization:
     for toml_path in sorted(races_dir.glob('*.toml')):
         with open(toml_path, 'rb') as f:
             data = tomllib.load(f)
+        for key in data:
+            if key not in _TOP_LEVEL_KEYS:
+                log.warning("%s: unrecognized top-level key %r - ignored "
+                            "(expected one of %s)", toml_path.name, key,
+                            ', '.join(sorted(_TOP_LEVEL_KEYS)))
         file_categories = _parse_tint_categories(data.get('tint_categories', {}))
         for row in data.get('race_customization', []):
             _apply_row(cust, row, toml_path.name)
@@ -261,6 +286,8 @@ def load_customization(races_dir: Path) -> Customization:
                             toml_path.name, entry)
                 continue
             cust.set_breed(breed, parent, float(entry.get('probability', 0.0)))
+        for name, blocks in data.get('facemorphs', {}).items():
+            cust.facemorphs[name] = parse_facemorphs(blocks, name)
     return cust
 
 

@@ -9,8 +9,8 @@ leveled lists, and cycle/dead-end safety.
 import struct
 
 from furrifier_fo4.templates import (
-    uses_traits, template_object, lvln_entry_objects, is_templated_leaf,
-    resolve_trait_owners,
+    uses_traits, template_object, tpta_traits_object, traits_template_object,
+    lvln_entry_objects, is_templated_leaf, resolve_trait_owners,
 )
 
 
@@ -45,16 +45,25 @@ def _tplt(obj):
     return _Sub("TPLT", struct.pack("<I", obj))  # file_index 0 + object_index
 
 
+def _tpta(traits_obj):
+    # 13 per-category FormIDs (52 bytes); only the Traits slot (0) is set here.
+    d = bytearray(52)
+    struct.pack_into("<I", d, 0, traits_obj)
+    return _Sub("TPTA", bytes(d))
+
+
 def _lvlo(obj):
     d = bytearray(12)
     struct.pack_into("<I", d, 4, obj)
     return _Sub("LVLO", bytes(d))
 
 
-def npc(use_traits=False, tplt=None):
+def npc(use_traits=False, tplt=None, tpta_traits=None):
     subs = [_acbs(use_traits)]
     if tplt is not None:
         subs.append(_tplt(tplt))
+    if tpta_traits is not None:
+        subs.append(_tpta(tpta_traits))
     return _Rec(*subs)
 
 
@@ -87,6 +96,60 @@ def test_is_templated_leaf_requires_both_flag_and_tplt():
     assert is_templated_leaf(npc(use_traits=True, tplt=0x10)) is True
     assert is_templated_leaf(npc(use_traits=True, tplt=None)) is False
     assert is_templated_leaf(npc(use_traits=False, tplt=0x10)) is False
+
+
+# ---------------------------------------------------- TPTA Traits override ----
+# The engine resolves each template category from its own TPTA slot when set,
+# falling back to TPLT only when the slot is null. The Traits slot (0) is the
+# appearance/race source — Bethesda routinely points TPLT at a stats/combat
+# template while a separate '…FaceAndRace' list drives Traits, so face/race
+# resolution MUST follow TPTA[Traits], not bare TPLT.
+
+def test_tpta_traits_object_extracts_slot0():
+    assert tpta_traits_object(npc(use_traits=True, tpta_traits=0x06012345)) == 0x012345
+    assert tpta_traits_object(npc(use_traits=True)) is None
+    # A null Traits slot reads as absent, not as object 0.
+    assert tpta_traits_object(npc(use_traits=True, tpta_traits=0x0)) is None
+
+
+def test_traits_template_object_prefers_tpta_over_tplt():
+    rec = npc(use_traits=True, tplt=0xAAA, tpta_traits=0xBBB)
+    assert traits_template_object(rec) == 0xBBB     # TPTA wins
+    assert template_object(rec) == 0xAAA            # raw TPLT still readable
+
+
+def test_traits_template_object_falls_back_to_tplt_when_no_tpta():
+    assert traits_template_object(npc(use_traits=True, tplt=0xAAA)) == 0xAAA
+
+
+def test_is_templated_leaf_with_tpta_traits_and_no_tplt():
+    # Appearance can come purely from the TPTA Traits slot, with no TPLT at all.
+    assert is_templated_leaf(npc(use_traits=True, tpta_traits=0x10)) is True
+
+
+def test_resolve_follows_tpta_traits_not_tplt():
+    # Models LvlGoodneighborTriggermanWarehouse (0011A2F5): TPLT points at the
+    # combat/stats list (wrong owner), TPTA[Traits] at the FaceAndRace list whose
+    # entries are the real appearance owners. Resolution must return the latter.
+    leaf = npc(use_traits=True, tplt=0x100, tpta_traits=0x200)
+    win_lvln = {
+        0x100: lvln(0x11),          # LCharTriggerman -> stats template (wrong)
+        0x200: lvln(0x21, 0x22),    # LCharTriggermanFaceAndRace -> real owners
+    }
+    win_npc = {
+        0x11: npc(False),           # EncTriggermanTemplate00 (stats owner)
+        0x21: npc(False),           # EncTriggermanFaceM01
+        0x22: npc(False),           # EncTriggermanGhoulFaceM01
+    }
+    owners = resolve_trait_owners(leaf, win_npc, win_lvln)
+    assert owners == {0x21, 0x22}   # NOT {0x11}
+
+
+def test_resolve_null_tpta_traits_slot_falls_back_to_tplt():
+    # TPTA present but Traits slot null -> the engine uses TPLT for Traits.
+    leaf = npc(use_traits=True, tplt=0x100, tpta_traits=0x0)
+    owners = resolve_trait_owners(leaf, {0x100: npc(False)}, {})
+    assert owners == {0x100}
 
 
 # -------------------------------------------------------------- resolution ----

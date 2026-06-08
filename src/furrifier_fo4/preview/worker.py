@@ -40,12 +40,15 @@ class PreviewWorker(QObject):
     catalog_failed = Signal(str)
     session_building = Signal()           # heavy load started (first visualize)
     # request_id, nif_path, bake_root, info — info is a dict:
-    #   {race, editor_id, template_owner, template_count}
+    #   {race, parent_race, breed, editor_id, template_owner, template_count}
     bake_ready = Signal(int, str, str, object)
     bake_failed = Signal(int, str)
 
-    def __init__(self, parent: Optional[QObject] = None) -> None:
+    def __init__(self, cache=None, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
+        # Shared world cache (the Run worker uses the same one), so the preview
+        # session and a full Run share a single plugin load.
+        self._cache = cache
         self._catalog: Optional[PreviewCatalog] = None
         self._catalog_key: Optional[tuple] = None
         self._session: Optional[PreviewSession] = None
@@ -97,15 +100,21 @@ class PreviewWorker(QObject):
             self._session.close()
             self._session = None
         self.session_building.emit()
-        self._session = PreviewSession(scheme, data_dir=data_dir,
-                                       plugins=plugins)
+        if self._cache is not None:
+            # Reuse the shared world (the Run builds/uses the same one); the
+            # PreviewSession just wraps it, so it doesn't own/close the world.
+            world = self._cache.get_or_build(scheme, data_dir, plugins)
+            self._session = PreviewSession(scheme, world=world)
+        else:
+            self._session = PreviewSession(scheme, data_dir=data_dir,
+                                           plugins=plugins)
         self._session_key = key
         return self._session
 
-    @Slot(int, int, str, object, object, bool, bool)
+    @Slot(int, int, str, object, object, bool, int)
     def bake(self, request_id: int, objid: int, scheme: str,
              data_dir: Optional[str], plugins: Optional[list],
-             refurrify: bool, roll: bool = False) -> None:
+             refurrify: bool, variant: int = 0) -> None:
         self._latest_request_id = max(self._latest_request_id, request_id)
         try:
             session = self._ensure_session(scheme, data_dir, plugins)
@@ -120,7 +129,7 @@ class PreviewWorker(QObject):
             bake_dir = Path(tempfile.mkdtemp(
                 prefix=f"req{request_id}_", dir=self._temp_root))
             result = session.bake(objid, bake_dir, facegen_size=512,
-                                  refurrify=refurrify, roll=roll)
+                                  refurrify=refurrify, variant=variant)
             if result is None:
                 self.bake_failed.emit(
                     request_id, f"{objid:08X}: not furrifiable under this scheme")
@@ -129,6 +138,8 @@ class PreviewWorker(QObject):
                 return  # a newer request superseded us
             info = {
                 "race": result.race_name,
+                "parent_race": result.parent_race,
+                "breed": result.breed,
                 "editor_id": result.editor_id,
                 "template_owner": result.template_owner,
                 "template_count": result.template_count,

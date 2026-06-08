@@ -194,3 +194,37 @@ def test_breed_inherits_parent_then_wildcard():
     assert c.color_scheme_for('ElkBreed') == {'x': 1}
     c.colors['ElkBreed'] = 'ElkScheme'; c.color_schemes['ElkScheme'] = {'y': 2}
     assert c.color_scheme_for('ElkBreed') == {'y': 2}
+
+
+# ------------------------------------------------ top-level key lint (load) ---
+
+def test_top_level_unknown_key_warns(tmp_path, caplog):
+    # A typo'd top-level table (here `race_customizaton`) would otherwise drop
+    # the whole section silently — the lint must flag it.
+    (tmp_path / 'x.toml').write_text(
+        '[[race_customizaton]]\nrace = "FoxRace"\n')
+    with caplog.at_level('WARNING'):
+        load_customization(tmp_path)
+    assert any('unrecognized top-level key' in r.message
+               and 'race_customizaton' in r.message for r in caplog.records)
+
+
+def test_top_level_known_keys_no_warn(tmp_path, caplog):
+    # `breeds` is a bare top-level key, so (per TOML) it must precede any table
+    # header or it'd be absorbed into that table — same as the real catalogs.
+    (tmp_path / 'x.toml').write_text(
+        'breeds = [{breed = "B", race = "FoxRace", probability = 0.5}]\n\n'
+        '[[race_customization]]\n'
+        'race = "FoxRace"\n'
+        'child_race = "FoxChildRace"\n\n'
+        '[tint_categories]\n'
+        'Mask = ["face mask*"]\n\n'
+        '[color_schemes.Foo]\n'
+        'Mask = [["probability", 1.0]]\n')
+    with caplog.at_level('WARNING'):
+        cust = load_customization(tmp_path)
+    assert not any('unrecognized top-level key' in r.message
+                   for r in caplog.records)
+    # ...and the recognized sections still loaded.
+    assert cust.child_race('FoxRace') == 'FoxChildRace'
+    assert 'B' in cust.breeds

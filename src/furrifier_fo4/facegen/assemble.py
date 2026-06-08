@@ -30,6 +30,9 @@ from .assets import AssetResolver
 from .basehead import (resolve_shape_textures, resolve_shape_alpha,
                        ensure_materials_cached)
 from .headparts_resolve import HDPT_FACE
+from .tri_morph import morphed_verts
+from .facebones import (load_facebones_shape, facebone_displacements,
+                       load_facebone_skeleton, SKELETON_FACEBONES)
 
 ensure_dev_path()
 from pyn.pynifly import NifFile  # noqa: E402
@@ -57,8 +60,12 @@ def _identity() -> TransformBuf:
 
 
 def _copy_shape(dst: NifFile, fg, src_shape, resolver, face_textures=None,
-                texture_overrides=None, hair_palette_scale=None) -> None:
+                texture_overrides=None, hair_palette_scale=None,
+                verts=None) -> None:
     """Copy one source head-part shape into `dst` under `fg`, verbatim.
+
+    `verts` overrides the source vertices (used to bake the head's chargen face
+    morphs into the Face shape); None copies them unchanged.
 
     For a greyscale-to-palette (hair) shape, restore the shared hair-color
     gradient in the Greyscale slot and set grayscaleToPaletteScale to
@@ -68,7 +75,8 @@ def _copy_shape(dst: NifFile, fg, src_shape, resolver, face_textures=None,
     uvs = list(src_shape.uvs) if src_shape.uvs else []
     normals = list(src_shape.normals) if src_shape.normals else None
     new_shape = dst.createShapeFromData(
-        src_shape.name, list(src_shape.verts), list(src_shape.tris), uvs,
+        src_shape.name, verts if verts is not None else list(src_shape.verts),
+        list(src_shape.tris), uvs,
         normals, use_type=PynBufferTypes.BSSubIndexTriShapeBufType, parent=fg)
     new_shape.transform = src_shape.transform
     if src_shape.colors:
@@ -148,6 +156,33 @@ def _copy_shape(dst: NifFile, fg, src_shape, resolver, face_textures=None,
             log.debug("segment copy failed for %s: %s", src_shape.name, exc)
 
 
+def _apply_facebones(base_verts: list, facebones_rel: str, deltas: dict,
+                     resolver) -> list:
+    """Add the facebone (region) LBS displacement to `base_verts`, using the
+    facebones-skinned head nif (`facebones_rel`) for the skin weights + bone
+    transforms. Returns `base_verts` unchanged if the nif is missing or its vert
+    count doesn't match (a guard — no corruption)."""
+    fb_path = resolver.resolve(facebones_rel)
+    if fb_path is None:
+        log.debug("facebones nif missing: %s", facebones_rel)
+        return base_verts
+    shape = load_facebones_shape(str(fb_path))
+    if shape is None or len(shape.verts) != len(base_verts):
+        if shape is not None:
+            log.warning("facebones nif %s has %d verts, head has %d; region "
+                        "morphs skipped", facebones_rel, len(shape.verts),
+                        len(base_verts))
+        return base_verts
+    # The facebone skeleton supplies the bone hierarchy so a region that drives
+    # a control bone (e.g. skin_bone_L_Ear) deforms the head's descendant skin
+    # bone (skin_bone_L_EarTop). Missing -> direct-skin bones still work.
+    skel_path = resolver.resolve("\\".join(SKELETON_FACEBONES))
+    skeleton = load_facebone_skeleton(str(skel_path)) if skel_path else None
+    disp = facebone_displacements(shape, deltas, skeleton=skeleton)
+    return [(v[0] + d[0], v[1] + d[1], v[2] + d[2])
+            for v, d in zip(base_verts, disp)]
+
+
 def build_facegen_nif(form_id: str, base_plugin: str, headparts: list,
                       resolver: AssetResolver, dst_path: Path,
                       hair_palette_scale: Optional[float] = None) -> bool:
@@ -214,10 +249,26 @@ def build_facegen_nif(form_id: str, base_plugin: str, headparts: list,
     fg = dst.add_node("BSFaceGenNiNodeSkinned", _identity(), parent=dst.root)
 
     for hp, src_shape in sources:
-        ft = face_textures if hp.get("hdpt_type") == HDPT_FACE else None
+        is_face = hp.get("hdpt_type") == HDPT_FACE
+        ft = face_textures if is_face else None
+        # Bake face morphs into the Face shape's verts: chargen tri shape keys
+        # (phase 2) then facebone region deformation (phase 3). Both are vertex
+        # displacements on the shared head vert order.
+        verts = None
+        morphs = hp.get("morphs")
+        fb_deltas = hp.get("facebone_deltas")
+        if is_face and (morphs or fb_deltas):
+            verts = list(src_shape.verts)
+            if morphs and hp.get("chargen_tri"):
+                tri_path = resolver.resolve(hp["chargen_tri"])
+                if tri_path is not None:
+                    verts = morphed_verts(verts, str(tri_path), morphs)
+            if fb_deltas and hp.get("facebones_nif"):
+                verts = _apply_facebones(verts, hp["facebones_nif"], fb_deltas,
+                                         resolver)
         _copy_shape(dst, fg, src_shape, resolver, face_textures=ft,
                     texture_overrides=hp.get("textures"),
-                    hair_palette_scale=hair_palette_scale)
+                    hair_palette_scale=hair_palette_scale, verts=verts)
 
     dst.save()
     log.debug("wrote facegeom %s (%d bytes)", dst_path,

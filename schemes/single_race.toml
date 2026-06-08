@@ -7,6 +7,7 @@
 # Optionally define extra classes here. Scheme classes are tried BEFORE the
 # built-ins, so they take priority.
 class_match = [
+    ["CLASS_GHOUL", "RACE", "GhoulRace"], # Repeat so that ghouls are filtered out first
     ["CLASS_ALL", "FACTION", "*"],
 ]
 
@@ -17,9 +18,11 @@ class_match = [
 [[class_probabilities]]
 class = "CLASS_ALL"
 races = [
-  ["FFODeerRace", 100], 
+  ["FFOFoxRace", 100], 
 ]
 
-# Pin a specific NPC (or alias/family leader) to a race.
-# [npc_assignments]
-# "CompanionX6-88" = "FFOTigerRace"
+[[class_probabilities]]
+class = "CLASS_GHOUL"
+races = [
+  ["FFOSnekdogRace", 100],
+]

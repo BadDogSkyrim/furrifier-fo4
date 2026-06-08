@@ -8,6 +8,7 @@ that are *prepended* to the built-ins (scheme rules win).
 
 from __future__ import annotations
 
+import logging
 import sys
 import tomllib
 from pathlib import Path
@@ -16,9 +17,26 @@ from typing import Optional
 from .models import ClassDistribution, MatchRule, WeightedRace, MATCH_FIELDS
 from .scheme import Scheme
 
+log = logging.getLogger(__name__)
+
+# The only top-level keys each file may define. A key outside the set is almost
+# always a typo or a section in the wrong file (e.g. [[facemorphs]], which
+# belongs in a race catalog, not a scheme) — warn instead of silently dropping
+# the whole section.
+_SCHEME_KEYS = {'class_match', 'class_probabilities', 'npc_assignments'}
+_BUILTIN_KEYS = {'class_match', 'aliases', 'families'}
+
 
 class SchemeError(ValueError):
     """A scheme or built-in TOML file is malformed."""
+
+
+def _lint_top_level(data: dict, allowed: set, source: str) -> None:
+    for key in data:
+        if key not in allowed:
+            log.warning("%s: unrecognized top-level key %r - ignored "
+                        "(expected one of %s)", source, key,
+                        ', '.join(sorted(allowed)))
 
 
 def _find_resource_dir(name: str) -> Optional[Path]:
@@ -142,6 +160,7 @@ def load_scheme(scheme_name: str) -> Scheme:
     if builtin_path is not None and builtin_path.is_file():
         with open(builtin_path, 'rb') as f:
             builtin_data = tomllib.load(f)
+        _lint_top_level(builtin_data, _BUILTIN_KEYS, builtin_path.name)
 
     schemes_dir = _find_resource_dir('schemes')
     if schemes_dir is None:
@@ -156,5 +175,6 @@ def load_scheme(scheme_name: str) -> Scheme:
             f"Available: {available}")
     with open(scheme_path, 'rb') as f:
         scheme_data = tomllib.load(f)
+    _lint_top_level(scheme_data, _SCHEME_KEYS, scheme_path.name)
 
     return parse_scheme(builtin_data, scheme_data)

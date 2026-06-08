@@ -24,6 +24,12 @@ from typing import Optional
 _TEMPLATE_FLAGS_OFFSET = 14
 _USE_TRAITS = 0x0001
 
+# TPTA ("Template Actors") = 13 per-category template FormIDs (BMMO/LVLN/NPC_/
+# NULL), 4 bytes each. The engine resolves each template category from its own
+# TPTA slot if that slot is non-null, falling back to the generic TPLT only when
+# it is null. Traits (race + head + appearance) is slot 0, byte offset 0.
+_TPTA_TRAITS_OFFSET = 0
+
 
 def _sig(subrecord) -> str:
     s = subrecord.signature
@@ -51,6 +57,26 @@ def template_object(npc) -> Optional[int]:
     return int.from_bytes(sr.data[:4], "little") & 0xFFFFFF
 
 
+def tpta_traits_object(npc) -> Optional[int]:
+    """object_index of the NPC's per-category Traits template (TPTA slot 0), or
+    None if there's no TPTA or that slot is null."""
+    sr = npc.get_subrecord("TPTA")
+    if sr is None or len(sr.data) < _TPTA_TRAITS_OFFSET + 4:
+        return None
+    obj = int.from_bytes(
+        sr.data[_TPTA_TRAITS_OFFSET:_TPTA_TRAITS_OFFSET + 4], "little") & 0xFFFFFF
+    return obj or None
+
+
+def traits_template_object(npc) -> Optional[int]:
+    """object_index of the template the engine takes this NPC's Traits (race +
+    head + appearance) from: the TPTA Traits slot if non-null, else the generic
+    TPLT fallback. This — not bare TPLT — is the appearance source, so all face/
+    race resolution must follow it (Bethesda routinely points TPLT at a combat/
+    stats template while a separate '…FaceAndRace' list drives Traits)."""
+    return tpta_traits_object(npc) or template_object(npc)
+
+
 def lvln_entry_objects(lvln) -> list:
     """object_indexes of an LVLN's LVLO leveled-list entries (the FormID sits at
     byte 4 of each 12-byte LVLO)."""
@@ -62,18 +88,20 @@ def lvln_entry_objects(lvln) -> list:
 
 
 def is_templated_leaf(npc) -> bool:
-    """True if `npc` defers its traits to a template (Use-Traits + has a TPLT)."""
-    return uses_traits(npc) and template_object(npc) is not None
+    """True if `npc` defers its traits to a template (Use-Traits + a resolvable
+    Traits template). A Use-Traits NPC can drive appearance purely through its
+    TPTA Traits slot with no TPLT at all, so check the traits-aware target."""
+    return uses_traits(npc) and traits_template_object(npc) is not None
 
 
 def resolve_trait_owners(npc, winning_npc: dict, winning_lvln: dict) -> set:
     """The set of trait-owner object_indexes `npc` resolves to.
 
-    Walks `npc`'s `TPLT` target through Use-Traits NPC templates and LVLN
-    entries, collecting every NPC that does NOT use traits — the records that
-    actually own race + appearance. Returns an empty set for a dead-end chain
-    (a Use-Traits NPC whose template is missing or itself dead-ends). Shared
-    sub-chains are walked once; cycles are guarded.
+    Walks `npc`'s Traits template (TPTA Traits slot, else TPLT) through
+    Use-Traits NPC templates and LVLN entries, collecting every NPC that does
+    NOT use traits — the records that actually own race + appearance. Returns an
+    empty set for a dead-end chain (a Use-Traits NPC whose template is missing or
+    itself dead-ends). Shared sub-chains are walked once; cycles are guarded.
     """
     owners: set = set()
     seen: set = set()
@@ -102,13 +130,13 @@ def resolve_trait_owners(npc, winning_npc: dict, winning_lvln: dict) -> set:
             if sub is None:
                 return
             if uses_traits(sub):
-                t = template_object(sub)
+                t = traits_template_object(sub)
                 if t is not None:
                     dispatch(t)
             else:
                 owners.add(obj)
 
-    start = template_object(npc)
+    start = traits_template_object(npc)
     if start is not None:
         dispatch(start)
     return owners

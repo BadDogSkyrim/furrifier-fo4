@@ -47,16 +47,22 @@ def _skin_tone_hex(record) -> Optional[str]:
 
 class PreviewResult:
     __slots__ = ("nif_path", "facecust_dir", "race_name", "editor_id",
-                 "template_owner", "template_count", "template_index",
-                 "skin_tone")
+                 "parent_race", "breed", "template_owner", "template_count",
+                 "template_index", "skin_tone")
 
     def __init__(self, nif_path, facecust_dir, race_name, editor_id,
+                 parent_race=None, breed=None,
                  template_owner=None, template_count=0, template_index=0,
                  skin_tone=None):
         self.nif_path = nif_path
         self.facecust_dir = facecust_dir
         self.race_name = race_name
         self.editor_id = editor_id
+        # The furry ENGINE race the NPC was assigned (e.g. FFODeerRace) and, if
+        # a breed (a visual flavor of that race) was rolled, its name — so the
+        # preview can report "Breed: X" or fall back to "Race: X".
+        self.parent_race = parent_race
+        self.breed = breed
         # "#RRGGBB" of the furrified NPC's skin tone (QNAM), for tinting
         # FaceGen RGB-tint shapes (horn bases etc.) in the preview. None if
         # the record carries no QNAM.
@@ -75,86 +81,50 @@ class PreviewSession:
 
     def __init__(self, scheme_name: str, data_dir: Optional[str] = None,
                  races_dir: Optional[str] = None,
-                 plugins: Optional[list] = None):
-        self.data = Path(data_dir or find_game_data("fo4"))
-        self.scheme = load_scheme(scheme_name)
-        self.scheme.build_indexes()
-        if races_dir is None:
-            # This file is one level deeper than the run's session.py
-            # (…/preview/session.py), so the project root is parents[3], not
-            # parents[2] — the catalog lives at <root>/races.
-            races_dir = Path(__file__).resolve().parents[3] / "races"
-        self.cust = load_customization(Path(races_dir))
+                 plugins: Optional[list] = None,
+                 world: Optional["FurryWorld"] = None):
+        # Compose a shared FurryWorld (the GUI passes the same instance the Run
+        # uses, so plugins load once). Build our own only when none is given
+        # (standalone preview / tests); then we own it and close it.
+        self._owns_world = world is None
+        if world is None:
+            from ..world import FurryWorld
+            world = FurryWorld(scheme_name, data_dir=data_dir,
+                               races_dir=races_dir, plugins=plugins)
+        self.world = world
 
-        if plugins is None:
-            plugins = list(LoadOrder.from_game("fo4", active_only=True))
-        lo = LoadOrder.from_list(plugins, data_dir=str(self.data))
-        self.ps = PluginSet(lo)
-        strings = find_strings_dir("fo4")
-        for p in self.ps:
-            p.string_search_dirs = [str(strings)] if strings else []
-        self.ps.load_all()
+        # Alias the immutable loaded state so the bake methods below read it
+        # directly. (`scheme`/`_facts_for`/`resolved_race` come from the world
+        # too, so a single source of truth.)
+        w = world
+        self.data = w.data
+        self.scheme = w.scheme
+        self.cust = w.cust
+        self.ps = w.ps
+        self.extractor = w.extractor
+        self.races = w.races
+        self.headpart_pools = w.headpart_pools
+        self.race_tints = w.race_tints
+        self.race_morphs = w.race_morphs
+        self.bone_regions = w.bone_regions
+        self.tint_templates = w.tint_templates
+        self.resolver = w.resolver
+        self.base_heads = w.base_heads
+        self.races_by_edid = w.races_by_edid
+        self.winning = w.winning
+        self.base_winning = w.base_winning
+        self.winning_lvln = w.winning_lvln
+        self.furrified = w.furrified
+        self._npc_by_edid = w._npc_by_edid
+        self._facts_cache = w._facts_cache
+        self._facts_for = w._facts_for
+        self.resolved_race = w.resolved_race
 
-        self.extractor = FactExtractor(self.ps)
-        self.races = RaceLibrary(self.ps, child_races=self.cust.child_races)
-        self.headpart_pools = HeadpartPools(self.ps)
-        self.race_tints = RaceTints(self.ps)
-
-        # Facegen-bake indexes, built once and reused across bakes — the
-        # AssetResolver's BA2 scan and the tint-template index are the
-        # expensive part of a bake (the reason a cold bake was ~7.7s).
-        self.tint_templates = RaceTintTemplates(self.ps)
-        self.resolver = AssetResolver.for_data_dir(self.data)
-        self.base_heads = BaseHeadTextures(self.headpart_pools, self.resolver)
-        self.races_by_edid: dict = {}
-        for plugin in self.ps:
-            for r in plugin.get_records_by_signature("RACE"):
-                if r.editor_id:
-                    self.races_by_edid[r.editor_id] = r
-
-        # Winning NPC per object id. `winning` is the absolute winner (incl.
-        # furrifier output); `base_winning` is the winner among non-furrifier
-        # plugins — the vanilla/mod record to furrify. `furrified` is the set
-        # of objids whose absolute winner is itself furrifier output (already
-        # done by an earlier run). Resolution + facts always use base records;
-        # the existing furry override is consulted only to "show what was done".
-        self.winning: dict = {}
-        self.base_winning: dict = {}
-        self.winning_lvln: dict = {}
-        self.furrified: set = set()
-        for plugin in self.ps:
-            furrifier = is_furrifier_plugin(plugin)
-            for npc in plugin.get_records_by_signature("NPC_"):
-                objid = npc.form_id.value & 0xFFFFFF
-                self.winning[objid] = npc
-                if furrifier:
-                    self.furrified.add(objid)
-                else:
-                    self.base_winning[objid] = npc
-                    self.furrified.discard(objid)
-            for lvln in plugin.get_records_by_signature("LVLN"):
-                self.winning_lvln[lvln.form_id.value & 0xFFFFFF] = lvln
-        self._npc_by_edid: dict = {}
-        for npc in self.base_winning.values():
-            if npc.editor_id:
-                self._npc_by_edid[npc.editor_id] = npc
-        self._facts_cache: dict = {}
-        # Per-leaf walk-through cursor: Roll steps to the next face in order
-        # (wrapping), so you can see each possible face one at a time.
-        self._roll_index: dict = {}
         # Placed-actor instance counts per trait-owner (lazy — the ACHR scan is
         # only needed once a templated NPC is previewed), and a per-leaf cache of
         # the resolved face-option list.
         self._instances: Optional[dict] = None
         self._options_cache: dict = {}
-
-    def _facts_for(self, edid):
-        if edid not in self._facts_cache:
-            n = self._npc_by_edid.get(edid)
-            self._facts_cache[edid] = (
-                self.extractor.facts_for(n, signature=self.scheme.signature_for(edid))
-                if n is not None else None)
-        return self._facts_cache[edid]
 
     def list_npcs(self) -> list:
         """(objid, editor_id) for every furry-relevant NPC, sorted by
@@ -167,14 +137,7 @@ class PreviewSession:
         out.sort(key=lambda t: t[1].lower())
         return out
 
-    def resolved_race(self, npc) -> Optional[str]:
-        """The scheme's furry race for `npc` (a BASE record), or None if
-        gated/left-human."""
-        facts = self._facts_for(npc.editor_id or "") or self.extractor.facts_for(npc)
-        race_name = self.scheme.resolve_race(facts, self._facts_for)
-        if race_name is None or race_name in NON_FURRY_TARGETS:
-            return None
-        return race_name
+    # `resolved_race` and `_facts_for` are aliased to the world's in __init__.
 
     def furrifiable_owners(self, npc) -> list:
         """For a templated (Use-Traits) leaf, the distinct trait-OWNERS it can
@@ -234,7 +197,7 @@ class PreviewSession:
     def bake(self, objid: int, temp_root: Path,
              facegen_size: int = 512,
              refurrify: bool = True,
-             roll: bool = False) -> Optional[PreviewResult]:
+             variant: int = 0) -> Optional[PreviewResult]:
         """Furrify NPC `objid` into a throwaway patch and bake its facegen into
         `temp_root`. Returns a PreviewResult, or None if the NPC isn't
         furrifiable (gated, left human, or no child race).
@@ -245,10 +208,10 @@ class PreviewSession:
 
         **Templated (Use-Traits) NPCs** take their look from a trait-owner via
         the template chain, so we bake the OWNER (what the engine actually
-        shows), not the leaf. `roll=False` shows the canonical owner on its own
-        deterministic signature; `roll=True` picks a RANDOM owner from the
-        reachable set on a RANDOM signature — a truthful sample of what could
-        spawn (the result carries `template_owner` + `template_count`).
+        shows), not the leaf. Such an NPC has N possible faces (`_face_options`);
+        `variant` selects which one (0 = the first, wrapped into range), so the
+        pane can step ◀ ▶ through all of them. The result carries
+        `template_owner`, `template_count` (= N) and `template_index`.
         """
         temp_root = Path(temp_root)
         patch = Plugin.new_plugin(str(temp_root / "FO4FurryPreview.esp"),
@@ -258,6 +221,8 @@ class PreviewSession:
         template_owner = None
         template_count = 0
         template_index = 0
+        parent_race = None
+        breed_name = None
 
         if objid in self.furrified and not refurrify:
             # Show the existing result: copy the already-furry winning record
@@ -267,6 +232,9 @@ class PreviewSession:
                 raise KeyError(f"NPC {objid:08X} not in load order")
             override = patch.copy_record(existing, existing.plugin)
             race_name = self.extractor.race_of(override) or ""
+            # Reading back an already-furry NPC: we know its engine race but not
+            # which breed produced it, so report the race.
+            parent_race = race_name
             display_edid = existing.editor_id or f"{objid:08X}"
         else:
             npc = self.base_winning.get(objid) or self.winning.get(objid)
@@ -278,14 +246,12 @@ class PreviewSession:
             # faces if variant-expanded, else its single canonical face. A
             # variant is minted into the throwaway patch EXACTLY as the run does
             # (fresh record, edid = its signature), so its species and a distinct
-            # facegen path both match. Roll advances one face; default = face 0.
+            # facegen path both match. `variant` selects which face (◀ ▶ steps).
             minted = False
             opts = self._face_options(objid, npc)
             if opts:
                 template_count = len(opts)
-                template_index = ((self._roll_index.get(objid, 0) + 1)
-                                  % len(opts)) if roll else 0
-                self._roll_index[objid] = template_index
+                template_index = variant % len(opts)
                 owner_obj, owner_edid, signature, vidx = opts[template_index]
                 owner_base = (self.base_winning.get(owner_obj)
                               or self.winning.get(owner_obj))
@@ -326,7 +292,9 @@ class PreviewSession:
                             sex=sex, signature=signature,
                             headpart_pools=self.headpart_pools,
                             race_tints=self.race_tints, customization=self.cust,
-                            breed_name=breed_name)
+                            breed_name=breed_name,
+                            race_morphs=self.race_morphs,
+                            bone_regions=self.bone_regions)
                 override = target
             else:
                 override = furrify_npc(patch, target, furry_race,
@@ -335,7 +303,9 @@ class PreviewSession:
                                        headpart_pools=self.headpart_pools,
                                        race_tints=self.race_tints,
                                        customization=self.cust,
-                                       breed_name=breed_name)
+                                       breed_name=breed_name,
+                                       race_morphs=self.race_morphs,
+                                       bone_regions=self.bone_regions)
             display_edid = npc.editor_id or f"{objid:08X}"
 
         build_facegen_for_patch(patch, self.ps, str(self.data),
@@ -352,7 +322,9 @@ class PreviewSession:
                                 pools=self.headpart_pools,
                                 races_by_edid=self.races_by_edid,
                                 resolver=self.resolver,
-                                base_heads=self.base_heads)
+                                base_heads=self.base_heads,
+                                race_morphs=self.race_morphs,
+                                bone_regions=self.bone_regions)
 
         # The baked files are keyed on the record we actually furrified (the
         # owner for a templated leaf), not the picked leaf.
@@ -363,6 +335,7 @@ class PreviewSession:
         facecust_dir = (temp_root / "textures" / "Actors" / "Character" /
                         "FaceCustomization" / plugin)
         return PreviewResult(nif_path, facecust_dir, race_name, display_edid,
+                             parent_race=parent_race, breed=breed_name,
                              template_owner=template_owner,
                              template_count=template_count,
                              template_index=template_index,
@@ -370,9 +343,12 @@ class PreviewSession:
 
 
     def close(self) -> None:
-        """Release the session-scoped AssetResolver (closes BA2 handles and
-        removes its extraction temp dir). Safe to call more than once."""
-        resolver = getattr(self, "resolver", None)
-        if resolver is not None:
-            resolver.close()
-            self.resolver = None
+        """Release the loaded world (BA2 handles + extraction temp dir) — but
+        ONLY if we built it ourselves. When the GUI passed in a shared world it
+        owns its lifetime, so we leave it alone. Safe to call more than once."""
+        if self._owns_world:
+            world = getattr(self, "world", None)
+            if world is not None:
+                world.close()
+        self.resolver = None
+        self.world = None

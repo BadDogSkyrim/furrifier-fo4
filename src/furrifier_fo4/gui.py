@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -17,8 +18,8 @@ from PySide6.QtCore import Qt, QObject, QThread, Signal
 from PySide6.QtGui import QGuiApplication, QIntValidator
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QFrame,
-    QHBoxLayout, QLabel, QLineEdit, QMainWindow, QPlainTextEdit, QPushButton,
-    QVBoxLayout, QWidget,
+    QHBoxLayout, QLabel, QLineEdit, QMainWindow, QPlainTextEdit, QProgressBar,
+    QPushButton, QVBoxLayout, QWidget,
 )
 
 from .config import FurrifierConfig, setup_logging
@@ -140,15 +141,38 @@ class _Worker(QThread):
 
     finished_ok = Signal(int)
     failed = Signal(str)
+    cancelled = Signal()
+    progress = Signal(str, int, int)   # phase label, current, total (0=busy)
 
-    def __init__(self, config: FurrifierConfig):
+    def __init__(self, config: FurrifierConfig, cache):
         super().__init__()
         self.config = config
+        # The shared world cache (same instance the preview uses) — so a preview
+        # then a Run pays the plugin load once.
+        self._cache = cache
+        # Cooperative-cancel flag the pipeline samples at phase boundaries and
+        # per-NPC checkpoints. set() is thread-safe.
+        self._cancel_event = threading.Event()
+
+    def cancel(self) -> None:
+        self._cancel_event.set()
 
     def run(self) -> None:  # QThread.run override
+        from .main import CancelledError
         try:
-            code = run_furrification(self.config)
+            world = self._cache.get_or_build(
+                self.config.race_scheme, self.config.data_dir,
+                self.config.plugins,
+                progress=lambda m: self.progress.emit(m, 0, 0))
+            code = run_furrification(
+                self.config, world=world,
+                progress=lambda phase, cur, tot: self.progress.emit(
+                    phase, cur, tot),
+                cancel_event=self._cancel_event)
             self.finished_ok.emit(code)
+        except CancelledError:
+            logging.getLogger(__name__).info("Furrification cancelled by user")
+            self.cancelled.emit()
         except Exception as exc:  # pragma: no cover - GUI safety net
             logging.getLogger(__name__).exception("run failed")
             self.failed.emit(str(exc))
@@ -161,6 +185,12 @@ class FurrifierWindow(QMainWindow):
         self.resize(1080, 960)  # preferred; clamped to the screen on first show
         self._fitted = False
         self._worker: Optional[_Worker] = None
+        # One shared loaded world for both the preview and the Run, so plugins
+        # load once. The Run reads it (writes a separate patch), so no
+        # invalidation is needed; a scheme/plugins/data change rebuilds on the
+        # next request.
+        from .world import WorldCache
+        self._world_cache = WorldCache()
         self._bridge = _LogBridge()
         self._bridge.new_log.connect(self._append_log)
         self._log_handler: Optional[_QtLogHandler] = None
@@ -306,9 +336,19 @@ class FurrifierWindow(QMainWindow):
         self.log.setMaximumBlockCount(5000)
         root.addWidget(self.log, 1)
 
+        # Determinate during the furrify loop / facegen bake (range set from the
+        # progress signal's total); busy (range 0,0) during opaque phases like
+        # plugin load. Hidden when idle.
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setFixedHeight(6)
+        self.progress_bar.hide()
+        root.addWidget(self.progress_bar)
+
         bottom = QHBoxLayout()
         self.status = QLabel("Ready")
         bottom.addWidget(self.status, 1)
+        # One button doubles as Run / Cancel — its label tracks worker state.
         self.run_btn = QPushButton("Run")
         self.run_btn.setProperty("primary", True)
         self.run_btn.clicked.connect(self._on_run)
@@ -316,7 +356,7 @@ class FurrifierWindow(QMainWindow):
         root.addLayout(bottom)
 
         splitter.addWidget(left)
-        self.preview = PreviewPane(self._config, self)
+        self.preview = PreviewPane(self._config, self._world_cache, self)
         splitter.addWidget(self.preview)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
@@ -338,6 +378,10 @@ class FurrifierWindow(QMainWindow):
     def closeEvent(self, event) -> None:
         try:
             self.preview.shutdown()
+        except Exception:
+            pass
+        try:
+            self._world_cache.close()
         except Exception:
             pass
         super().closeEvent(event)
@@ -426,25 +470,54 @@ class FurrifierWindow(QMainWindow):
         )
 
     def _on_run(self) -> None:
+        # Running → the button is a Cancel: request a cooperative cancel and
+        # wait for the worker to unwind at its next checkpoint.
         if self._worker is not None and self._worker.isRunning():
+            self._worker.cancel()
+            self.run_btn.setEnabled(False)
+            self.run_btn.setText("Cancelling…")
+            self.status.setText("Cancelling…")
             return
         config = self._config()
         self.log.clear()  # fresh pane per run (the log FILE keeps accumulating)
         self._install_log_handler()
-        self.run_btn.setEnabled(False)
-        self.status.setText("Running…")
-        self._worker = _Worker(config)
+        self.run_btn.setText("Cancel")    # repurpose for the run's duration
+        self.status.setText("Starting…")
+        self.progress_bar.setRange(0, 0)  # busy until the first progress signal
+        self.progress_bar.show()
+        self._worker = _Worker(config, self._world_cache)
+        self._worker.progress.connect(self._on_progress)
         self._worker.finished_ok.connect(self._on_done)
         self._worker.failed.connect(self._on_failed)
+        self._worker.cancelled.connect(self._on_cancelled)
         self._worker.start()
+
+    def _on_progress(self, phase: str, current: int, total: int) -> None:
+        if total > 0:
+            self.progress_bar.setRange(0, total)
+            self.progress_bar.setValue(current)
+            self.status.setText(f"{phase}  {current}/{total}")
+        else:
+            self.progress_bar.setRange(0, 0)   # indeterminate / busy
+            self.status.setText(phase)
+
+    def _reset_run_button(self) -> None:
+        self.run_btn.setEnabled(True)
+        self.run_btn.setText("Run")
+        self.progress_bar.hide()
+        self._worker = None
 
     def _on_done(self, code: int) -> None:
         self.status.setText("Done" if code == 0 else f"Finished (exit {code})")
-        self.run_btn.setEnabled(True)
+        self._reset_run_button()
 
     def _on_failed(self, message: str) -> None:
         self.status.setText(f"Failed: {message}")
-        self.run_btn.setEnabled(True)
+        self._reset_run_button()
+
+    def _on_cancelled(self) -> None:
+        self.status.setText("Cancelled")
+        self._reset_run_button()
 
     # --------------------------------------------------------------- logs ---
 

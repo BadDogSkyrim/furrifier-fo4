@@ -34,6 +34,7 @@ ConfigProvider = Callable[[], FurrifierConfig]
 @dataclass
 class _HistoryEntry:
     objid: int
+    variant: int = 0                 # which of a templated NPC's N faces (◀ ▶)
     nif_path: Optional[Path] = None
     bake_root: Optional[Path] = None
     info: Optional[dict] = None      # last bake's template info, for nav restore
@@ -44,13 +45,15 @@ class PreviewPane(QWidget):
 
     _dispatch_catalog = Signal(object, object)            # data_dir, plugins
     _dispatch_reset = Signal(str, object, object)         # scheme, data, plugins
-    _dispatch_bake = Signal(int, int, str, object, object, bool, bool)
-    # request_id, objid, scheme, data_dir, plugins, refurrify, roll
+    _dispatch_bake = Signal(int, int, str, object, object, bool, int)
+    # request_id, objid, scheme, data_dir, plugins, refurrify, variant
 
     def __init__(self, config_provider: ConfigProvider,
+                 cache=None,
                  parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._config_provider = config_provider
+        self._cache = cache
         self._tracker = RequestTracker()
         self._last_objid: Optional[int] = None
         self._history: list = []
@@ -70,11 +73,14 @@ class PreviewPane(QWidget):
         self.back_button.setFixedSize(32, 32)
         self.back_button.setEnabled(False)
         self.back_button.setStyleSheet(_nav_qss)
+        self.back_button.setToolTip("Previous face / NPC")
         self.back_button.clicked.connect(self._on_back)
         self.forward_button = QPushButton("▶", self)
         self.forward_button.setFixedSize(32, 32)
         self.forward_button.setEnabled(False)
         self.forward_button.setStyleSheet(_nav_qss)
+        self.forward_button.setToolTip(
+            "Next face of this NPC (templated NPCs have several), then next NPC")
         self.forward_button.clicked.connect(self._on_forward)
         self.reframe_button = QPushButton("Reframe", self)
         self.reframe_button.setEnabled(False)
@@ -105,6 +111,11 @@ class PreviewPane(QWidget):
         self.template_label.setStyleSheet(
             "QLabel { color: #4CC94C; font-size: 9pt; font-style: italic; }")
         self.template_label.hide()
+        # Reports the furry race (or the rolled breed of that race) the NPC was
+        # assigned, alongside the headparts list.
+        self.race_label = QLabel("", self)
+        self.race_label.setWordWrap(True)
+        self.race_label.setStyleSheet("QLabel { color: #888; font-size: 9pt; }")
         self.headparts_label = QLabel("", self)
         self.headparts_label.setWordWrap(True)
         self.headparts_label.setStyleSheet("QLabel { color: #888; font-size: 9pt; }")
@@ -121,11 +132,12 @@ class PreviewPane(QWidget):
         layout.addWidget(self.status_label)
         layout.addWidget(self.template_label)
         layout.addWidget(self.scene, stretch=1)
+        layout.addWidget(self.race_label)
         layout.addWidget(self.headparts_label)
 
         # Worker on its own thread.
         self._thread = QThread(self)
-        self._worker = PreviewWorker()
+        self._worker = PreviewWorker(cache=self._cache)
         self._worker.moveToThread(self._thread)
         self._thread.start()
         self._worker.catalog_building.connect(self._on_catalog_building)
@@ -191,6 +203,7 @@ class PreviewPane(QWidget):
         # Roll stays enabled (it picks any NPC, not tied to the current bake).
         self.template_label.hide()
         self.scene.clear()
+        self.race_label.setText("")
         self.headparts_label.setText("")
 
     # ----- picker / navigation ---------------------------------------------
@@ -203,8 +216,10 @@ class PreviewPane(QWidget):
         self._on_npc_picked(objid)
 
     def _on_npc_picked(self, objid: int) -> None:
+        # A pick always lands on variant 0 of that NPC. If it's already in
+        # history, jump to its first (variant-0) entry; else append a fresh one.
         for i, entry in enumerate(self._history):
-            if entry.objid == objid:
+            if entry.objid == objid and entry.variant == 0:
                 if i == self._history_pos and entry.nif_path is not None:
                     return
                 self._history_pos = i
@@ -215,21 +230,20 @@ class PreviewPane(QWidget):
         if len(self._history) > self._history_cap:
             self._history = self._history[len(self._history) - self._history_cap:]
         self._history_pos = len(self._history) - 1
-        self._update_nav_buttons()
-        self._dispatch_bake_for_current()
+        self._navigate_to_current()
 
-    def _dispatch_bake_for_current(self, roll: bool = False) -> None:
+    def _dispatch_bake_for_current(self) -> None:
         if self._history_pos < 0:
             return
         entry = self._history[self._history_pos]
         self._last_objid = entry.objid
         request_id = self._tracker.next_id()
         self.status_label.setText(
-            f"Rolling {entry.objid:08X}…" if roll else f"Baking {entry.objid:08X}…")
+            "Rolling…" if self._rolling else f"Baking {entry.objid:08X}…")
         config = self._config_provider()
         self._dispatch_bake.emit(request_id, entry.objid, config.race_scheme,
                                  config.data_dir, config.plugins,
-                                 config.refurrify_existing, roll)
+                                 config.refurrify_existing, entry.variant)
 
     def _on_roll(self) -> None:
         """Pick and preview a random furrifiable NPC. Available from startup; if
@@ -252,30 +266,61 @@ class PreviewPane(QWidget):
         self._on_npc_picked(entry.form_id)
 
     def _on_back(self) -> None:
+        # Stepping back is always pos-1: a templated NPC's variants are laid out
+        # as consecutive entries, so pos-1 is the previous face of the same NPC
+        # (or the prior NPC once past variant 0).
         if self._history_pos > 0:
             self._history_pos -= 1
             self._navigate_to_current()
 
+    @staticmethod
+    def _variant_count(entry: _HistoryEntry) -> int:
+        """How many faces the entry's NPC can show (1 if not templated / unknown
+        until its first bake stores template_count)."""
+        return max(1, (entry.info or {}).get("template_count", 1) or 1)
+
     def _on_forward(self) -> None:
-        if self._history_pos < len(self._history) - 1:
+        entry = self._history[self._history_pos]
+        # Step to the next FACE of the same templated NPC if there is one,
+        # inserting it ahead of any existing forward history (lazy — baked on
+        # arrival). Otherwise advance to the next NPC in history.
+        if entry.variant + 1 < self._variant_count(entry):
+            nxt = self._history_pos + 1
+            if not (nxt < len(self._history)
+                    and self._history[nxt].objid == entry.objid
+                    and self._history[nxt].variant == entry.variant + 1):
+                self._history.insert(nxt, _HistoryEntry(
+                    objid=entry.objid, variant=entry.variant + 1))
+            self._history_pos = nxt
+            self._navigate_to_current()
+        elif self._history_pos < len(self._history) - 1:
             self._history_pos += 1
             self._navigate_to_current()
 
     def _navigate_to_current(self) -> None:
         self._update_nav_buttons()
         entry = self._history[self._history_pos]
-        self._last_objid = entry.objid
+        # Preserve the camera while stepping faces of ONE NPC; reset when we
+        # cross to a different NPC. Compute before _last_objid is overwritten.
+        crossing = entry.objid != self._last_objid
+        self._reset_camera_next = crossing
         if entry.nif_path is not None and entry.nif_path.is_file():
+            self._last_objid = entry.objid
             self._update_template_banner(entry.info or {})
-            self._show(entry.nif_path, entry.bake_root, preserve=True,
+            self._update_race_label(entry.info or {})
+            self._show(entry.nif_path, entry.bake_root, preserve=not crossing,
                        skin_tone=(entry.info or {}).get("skin_tone"))
         else:
             self._dispatch_bake_for_current()
 
     def _update_nav_buttons(self) -> None:
+        entry = (self._history[self._history_pos]
+                 if 0 <= self._history_pos < len(self._history) else None)
+        more_faces = (entry is not None
+                      and entry.variant + 1 < self._variant_count(entry))
         self.back_button.setEnabled(self._history_pos > 0)
         self.forward_button.setEnabled(
-            self._history_pos < len(self._history) - 1)
+            more_faces or self._history_pos < len(self._history) - 1)
 
     # ----- worker signals --------------------------------------------------
 
@@ -317,20 +362,41 @@ class PreviewPane(QWidget):
                 entry.nif_path = nif
                 entry.bake_root = root
                 entry.info = info
+        # template_count is only known now (after the bake), so re-evaluate the
+        # forward button — it may reveal more faces to step through.
+        self._update_nav_buttons()
         self._update_template_banner(info)
+        self._update_race_label(info)
         self._show(nif, root, preserve=not self._reset_camera_next,
                    skin_tone=info.get("skin_tone"))
 
+    def _update_race_label(self, info: dict) -> None:
+        """Report the assigned furry race, or the breed (a visual flavor of the
+        race) when one was rolled."""
+        breed = info.get("breed")
+        race = info.get("parent_race") or info.get("race")
+        if breed:
+            self.race_label.setText(f"Breed: {breed}  ({race})")
+        elif race:
+            self.race_label.setText(f"Race: {race}")
+        else:
+            self.race_label.setText("")
+
     def _update_template_banner(self, info: dict) -> None:
-        """Show the 'inherited from template' banner for a templated NPC; hide
-        it otherwise. (Roll is now the random-NPC button, independent of this.)"""
+        """Show the 'inherited from template' banner for a templated NPC, naming
+        which of its N faces is shown and that ◀ ▶ steps the rest; hide it for a
+        non-templated NPC. (Roll is the random-NPC button, independent of this.)"""
         owner = info.get("template_owner")
         count = info.get("template_count") or 0
         if owner and count:
             race = info.get("race") or "?"
-            extra = "" if count == 1 else f" (one of {count} possible faces)"
+            if count > 1:
+                idx = (info.get("template_index") or 0) + 1
+                extra = f" · Variant {idx} of {count} — ◀ ▶ to step faces"
+            else:
+                extra = ""
             self.template_label.setText(
-                f"Inherited from template: {owner} → {race}{extra}")
+                f"Inherited from {owner} → {race}{extra}")
             self.template_label.show()
         else:
             self.template_label.hide()
@@ -341,6 +407,7 @@ class PreviewPane(QWidget):
         if not self._tracker.is_current(request_id):
             return
         self.template_label.hide()
+        self.race_label.setText("")
         # A Roll that landed on an NPC the scheme doesn't furrify (gated): the
         # catalog lists furry-relevant base races but the scheme can still gate
         # one. Just roll again, up to a cap, so Roll reliably lands on a

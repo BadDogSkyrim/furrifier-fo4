@@ -1,0 +1,48 @@
+# Example face-morph entries — reference only.
+#
+# This folder (races/examples/) is NOT auto-loaded: the catalog loader globs
+# races/*.toml non-recursively. To try these, move an entry up into a real
+# catalog file (e.g. ffo_races.toml). Region/group/preset names below are the
+# REAL ones from FFOFoxRace (male) — see PLAN_FO4_FACEMORPHS.md for the format.
+#
+# Keyed per race OR breed: [[facemorphs.<race-or-breed>]]. A breed uses its own
+# entry if present, else its parent race's.
+#
+# Two top-level forms, discriminated by VALUE TYPE:
+#   <Region name (FMRN)> = { ... }              # a TABLE  -> bone transform + region presets
+#   <Morph group (MPGN)> = ["<preset>", weight] # an ARRAY -> one morph-group preset
+#
+# All values are CK sliders in -1..1 (NOT world units / degrees). For a region:
+#   position = [x, y, z]   rotation = [x, y, z]   scale = n   (one slider, all axes)
+# Omitted axes default to 0 (no change). Preset/group weights are -1..1.
+#
+# A block may set  sex = "male" | "female"  to scope it to one sex (omit = both).
+# The RACE defines regions AND morph-group presets PER SEX — often with DIFFERENT
+# names (fox Nose presets: male "Large Tip"/"Small Tip" vs female "Large Nose
+# Tip"/"Small Nose Tip") and different FMRI indices — so sex-specific blocks are
+# usually required.
+
+[[facemorphs.FFOFoxRace]]
+sex = "male"
+
+# 1) Region with a pure bone transform (FMRN "Ears - Full"): bigger ears, lifted
+#    and splayed out. Writes FMRI + FMRS.
+"Ears - Full" = { position = [0.0, 0.6, 0.4], scale = 0.5 }
+
+# 2) Region transform PLUS a preset named under it. The preset resolves in this
+#    region's AssociatedMorphGroup (FFO links "Nose - Full" -> the "Nose" group),
+#    so "Large Tip" lands there. Writes FMRI/FMRS for the push-in AND MSDK/MSDV
+#    for the preset.
+"Nose - Full" = { position = [0.0, -0.3, 0.0], "Large Tip" = 0.8 }
+
+# 3) Explicit morph-group form (an ARRAY): names the group directly. Use it for
+#    groups with no region link, or just to be unambiguous. NB "Neck" is both a
+#    region AND a group here — the array value makes this the GROUP "Neck".
+"Neck" = ["Thick Neck", 0.5]
+
+
+# A breed can override or extend its parent race. WhiteTail (if it were a fox
+# breed) — a smaller nose. A pure transform applies to both sexes (the region
+# exists for each); add a sex block if you want a per-sex preset too.
+[[facemorphs.WhiteTailFox]]
+"Nose - Full" = { scale = -0.4 }
