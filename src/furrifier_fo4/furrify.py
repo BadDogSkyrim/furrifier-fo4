@@ -214,7 +214,7 @@ def apply_furry(patch: Plugin, ov: Record, furry_race: Record,
     if (race_tints is not None and race_edid
             and sex is not None and signature):
         from .tints import apply_tints
-        scheme = (customization.color_scheme_for(cust_key)
+        scheme = (customization.color_scheme_for(cust_key, sex)
                   if customization is not None else None)
         cats = (customization.categories_for(race_edid)
                 if customization is not None else None)

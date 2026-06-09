@@ -529,6 +529,12 @@ class FurrifierWindow(QMainWindow):
             return
         handler = _QtLogHandler(self._bridge)
         handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+        # Floor the handler at INFO so sub-INFO noise never reaches the pane —
+        # incl. DEBUG re-emitted from facegen WORKER processes via the
+        # QueueListener (respect_handler_level=True), where PyNifly's import-time
+        # basicConfig(level=DEBUG) re-cranks the worker root past our main-process
+        # pynifly->WARNING. The handler is the one gate that covers every process.
+        handler.setLevel(logging.INFO)
         logging.getLogger().addHandler(handler)
         logging.getLogger().setLevel(logging.INFO)
         logging.getLogger("pynifly").setLevel(logging.WARNING)

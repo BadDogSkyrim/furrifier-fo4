@@ -86,6 +86,14 @@ class FurryWorld:
         self.race_morphs = RaceMorphs(self.ps)
         self.bone_regions = FacialBoneRegions(self.data)
 
+        # Validate the catalog against the real race data now that both are
+        # loaded — warns (with name suggestions) on facemorph presets/regions
+        # and tint colors a race doesn't actually offer, instead of leaving them
+        # to silently drop at bake time. See validate.py.
+        from .validate import validate_customization
+        validate_customization(self.cust, self.race_morphs, self.race_tints,
+                               self.bone_regions)
+
         # Facegen indexes (the AssetResolver BA2 scan is the expensive one).
         self.tint_templates = RaceTintTemplates(self.ps)
         self.resolver = AssetResolver.for_data_dir(self.data)

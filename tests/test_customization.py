@@ -115,6 +115,82 @@ def test_colors_reference():
     assert c.colors['WhiteTail'] == 'WhiteTailScheme'
 
 
+def test_facemorphs_reference():
+    c = build('''
+    [[race_customization]]
+    race = "Fennec"
+    facemorphs = "FennecMorphs"
+    ''')
+    assert c.facemorph_refs['Fennec'] == 'FennecMorphs'
+    # resolves the ref to the shared [facemorphs.Name] block
+    c.facemorphs['FennecMorphs'] = sentinel = object()
+    assert c.facemorphs_for('Fennec') is sentinel
+    assert c.facemorphs_for('Unreferenced') is None
+
+
+def test_breeds_on_row():
+    c = build('''
+    [[race_customization]]
+    race = "FFOFoxRace"
+    breeds = [["RedFoxBreed", 0.9], ["FennecBreed", 0.1]]
+    ''')
+    assert set(c.breeds) == {'RedFoxBreed', 'FennecBreed'}
+    assert c.breeds['RedFoxBreed'].parent_race_edid == 'FFOFoxRace'
+    assert c.breeds['RedFoxBreed'].probability == 0.9
+    assert c.breeds['FennecBreed'].probability == 0.1
+    # registered under the parent in row order (drives the breed roll)
+    assert [b.name for b in c.breeds_by_parent['FFOFoxRace']] == \
+        ['RedFoxBreed', 'FennecBreed']
+
+
+def test_breeds_on_row_malformed_warns(caplog):
+    import logging
+    with caplog.at_level(logging.WARNING):
+        c = build('''
+        [[race_customization]]
+        race = "FFOFoxRace"
+        breeds = [["RedFoxBreed", 0.9], "FennecBreed"]
+        ''')
+    assert set(c.breeds) == {'RedFoxBreed'}        # good entry still registers
+    assert 'malformed breed entry' in caplog.text
+
+
+def test_color_scheme_per_sex_union(tmp_path):
+    # both block applies to either sex; matching-sex block overrides/adds
+    (tmp_path / 'r.toml').write_text(
+        '[[race_customization]]\nrace = "Bird"\ncolors = "Plume"\n\n'
+        '[[color_schemes.Plume]]\nsex = "both"\nEyes = [["Yellow", 0.9]]\n\n'
+        '[[color_schemes.Plume]]\nsex = "male"\nBody = [["Blue", 0.9]]\n\n'
+        '[[color_schemes.Plume]]\nsex = "female"\nBody = [["Brown", 0.9]]\n')
+    c = load_customization(tmp_path)
+    male = c.color_scheme_for('Bird', Sex.MALE)
+    female = c.color_scheme_for('Bird', Sex.FEMALE)
+    assert set(male) == {'Eyes', 'Body'} and set(female) == {'Eyes', 'Body'}
+    assert male['Body'].colors == [('blue', 0.9)]      # sex-specific differs
+    assert female['Body'].colors == [('brown', 0.9)]
+    assert male['Eyes'].colors == [('yellow', 0.9)]    # shared 'both' to either
+
+
+def test_color_scheme_single_table_is_both(tmp_path):
+    # a single [color_schemes.X] table = one implicit 'both' block, both sexes
+    (tmp_path / 'r.toml').write_text(
+        '[[race_customization]]\nrace = "Fox"\ncolors = "RedFox"\n\n'
+        '[color_schemes.RedFox]\nMask = [["White", 0.9]]\n')
+    c = load_customization(tmp_path)
+    assert 'Mask' in c.color_scheme_for('Fox', Sex.MALE)
+    assert 'Mask' in c.color_scheme_for('Fox', Sex.FEMALE)
+
+
+def test_facemorphs_single_table(tmp_path):
+    # a single [facemorphs.X] table works too (one implicit 'both' block)
+    (tmp_path / 'r.toml').write_text(
+        '[[race_customization]]\nrace = "Fox"\nfacemorphs = "FoxM"\n\n'
+        '[facemorphs.FoxM]\nsex = "both"\n"Nose - Full" = { scale = -0.5 }\n')
+    c = load_customization(tmp_path)
+    spec = c.facemorphs_for('Fox')
+    assert spec is not None and spec.regions
+
+
 def test_parse_tint_categories_de_underscores_and_lowercases():
     cats = _parse_tint_categories({
         'Mask': ['*mask*', 'Face Plate'],
@@ -142,11 +218,8 @@ def test_tint_categories_are_file_scoped(tmp_path):
 
 def test_breeds_parsed_and_resolved(tmp_path):
     (tmp_path / 'r.toml').write_text(
-        'breeds = [\n'
-        '  {breed = "ElkBreed", race = "DeerRace", probability = 0.3},\n'
-        '  {breed = "MooseBreed", race = "DeerRace", probability = 0.7},\n'
-        ']\n'
         '[[race_customization]]\nrace = "DeerRace"\nchild_race = "DeerChildRace"\n'
+        'breeds = [["ElkBreed", 0.3], ["MooseBreed", 0.7]]\n'
         '[[race_customization]]\nrace = "ElkBreed"\ncolors = "Elk"\n')
     c = load_customization(tmp_path)
     assert set(c.breeds) == {'ElkBreed', 'MooseBreed'}
@@ -190,10 +263,17 @@ def test_breed_inherits_parent_then_wildcard():
     # breed silent on EYES -> inherits parent
     assert c.headpart_rule('ElkBreed', Sex.MALE, 'EYES').probability == 0.5
     # color scheme falls back breed -> parent, then breed wins when defined
-    c.colors['DeerRace'] = 'DeerScheme'; c.color_schemes['DeerScheme'] = {'x': 1}
-    assert c.color_scheme_for('ElkBreed') == {'x': 1}
-    c.colors['ElkBreed'] = 'ElkScheme'; c.color_schemes['ElkScheme'] = {'y': 2}
-    assert c.color_scheme_for('ElkBreed') == {'y': 2}
+    c.colors['DeerRace'] = 'DeerScheme'
+    c.color_schemes['DeerScheme'] = {None: {'x': 1}}
+    assert c.color_scheme_for('ElkBreed', Sex.MALE) == {'x': 1}
+    c.colors['ElkBreed'] = 'ElkScheme'
+    c.color_schemes['ElkScheme'] = {None: {'y': 2}}
+    assert c.color_scheme_for('ElkBreed', Sex.MALE) == {'y': 2}
+    # facemorphs resolve the same way: breed -> parent, breed wins when set
+    c.facemorph_refs['DeerRace'] = 'DeerM'; c.facemorphs['DeerM'] = {'m': 1}
+    assert c.facemorphs_for('ElkBreed') == {'m': 1}
+    c.facemorph_refs['ElkBreed'] = 'ElkM'; c.facemorphs['ElkM'] = {'m': 2}
+    assert c.facemorphs_for('ElkBreed') == {'m': 2}
 
 
 # ------------------------------------------------ top-level key lint (load) ---
@@ -210,13 +290,11 @@ def test_top_level_unknown_key_warns(tmp_path, caplog):
 
 
 def test_top_level_known_keys_no_warn(tmp_path, caplog):
-    # `breeds` is a bare top-level key, so (per TOML) it must precede any table
-    # header or it'd be absorbed into that table — same as the real catalogs.
     (tmp_path / 'x.toml').write_text(
-        'breeds = [{breed = "B", race = "FoxRace", probability = 0.5}]\n\n'
         '[[race_customization]]\n'
         'race = "FoxRace"\n'
-        'child_race = "FoxChildRace"\n\n'
+        'child_race = "FoxChildRace"\n'
+        'breeds = [["B", 0.5]]\n\n'
         '[tint_categories]\n'
         'Mask = ["face mask*"]\n\n'
         '[color_schemes.Foo]\n'
@@ -228,3 +306,15 @@ def test_top_level_known_keys_no_warn(tmp_path, caplog):
     # ...and the recognized sections still loaded.
     assert cust.child_race('FoxRace') == 'FoxChildRace'
     assert 'B' in cust.breeds
+
+
+def test_top_level_breeds_now_warns(tmp_path, caplog):
+    # breeds moved onto [[race_customization]] rows; a top-level `breeds` array
+    # is no longer recognized and must warn rather than silently load nothing.
+    (tmp_path / 'x.toml').write_text(
+        'breeds = [{breed = "B", race = "FoxRace", probability = 0.5}]\n')
+    with caplog.at_level('WARNING'):
+        cust = load_customization(tmp_path)
+    assert any('unrecognized top-level key' in r.message
+               and 'breeds' in r.message for r in caplog.records)
+    assert 'B' not in cust.breeds

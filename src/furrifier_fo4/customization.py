@@ -42,7 +42,8 @@ _HP_KEYS = {
 
 # Structural row keys (everything else is an inline color-rule key, validated by
 # shape: a list of [key, value] entries).
-_RESERVED_ROW_KEYS = {'race', 'sex', 'child_race', 'weight_range', 'colors'}
+_RESERVED_ROW_KEYS = {'race', 'sex', 'child_race', 'weight_range', 'colors',
+                      'facemorphs', 'breeds'}
 
 
 class HeadpartRule:
@@ -90,8 +91,11 @@ class Customization:
         # [Breed] in definition order for the probability roll.
         self.breeds: dict[str, Breed] = {}
         self.breeds_by_parent: dict[str, list] = {}
-        # race-or-breed name -> FaceMorphSpec (head-shaping morphs).
+        # facemorph name -> FaceMorphSpec (a shared [facemorphs.Name] block).
         self.facemorphs: dict = {}
+        # race-or-breed -> facemorph name (a `facemorphs = "Name"` reference,
+        # symmetric with `colors`/color_schemes).
+        self.facemorph_refs: dict[str, str] = {}
 
 
     def child_race(self, race_edid: str) -> Optional[str]:
@@ -163,25 +167,34 @@ class Customization:
             yield race_or_breed
         yield '*'
 
-    def color_scheme_for(self, race_or_breed: str) -> Optional[dict]:
-        """key -> ColorRule for a race-or-breed's named scheme, or None (no
-        scheme = use the race's full palette). Falls back breed -> parent -> '*';
-        keys are category-or-layer names."""
+    def color_scheme_for(self, race_or_breed: str, sex: Sex) -> Optional[dict]:
+        """{category: ColorRule} for a race-or-breed at `sex`, or None (no scheme
+        = use the race's full palette). Resolves the named scheme (sex-blind
+        `colors` ref, falling back breed -> parent -> '*'), then merges its
+        `both` block with the matching-sex block (the sex block overrides per
+        category). Keys are category-or-layer names."""
+        sx = _sex_token(sex)
         for race in self._lookup_races(race_or_breed):
             name = self.colors.get(race)
             if name:
-                return self.color_schemes.get(name)
+                scheme = self.color_schemes.get(name) or {}
+                merged = dict(scheme.get(None, {}))
+                merged.update(scheme.get(sx, {}))
+                return merged or None
         return None
 
     def facemorphs_for(self, race_or_breed: str):
-        """FaceMorphSpec for a race-or-breed, or None. A breed uses its own
-        entry if defined, else its parent race's; no '*' wildcard (regions are
-        race-specific). [[facemorphs]] head-shaping morphs."""
-        breed = self.breeds.get(race_or_breed)
-        if breed is not None:
-            return (self.facemorphs.get(breed.name)
-                    or self.facemorphs.get(breed.parent_race_edid))
-        return self.facemorphs.get(race_or_breed)
+        """FaceMorphSpec for a race-or-breed, or None. Resolved via a
+        `facemorphs = "Name"` reference to a shared [facemorphs.Name] block
+        (symmetric with `colors`/color_scheme_for), falling back breed ->
+        parent. No '*' wildcard — regions are race-specific."""
+        for race in self._lookup_races(race_or_breed):
+            if race == '*':
+                continue
+            name = self.facemorph_refs.get(race)
+            if name:
+                return self.facemorphs.get(name)
+        return None
 
     def categories_for(self, race_edid: str) -> dict:
         """{category_key_lower: [patterns]} for the race's file, or {} if its
@@ -250,7 +263,7 @@ def _parse_headpart_value(val) -> HeadpartRule:
 # set is almost always a typo (e.g. `color_scheme`, `breed`, `race_customizaton`)
 # whose whole section would otherwise vanish silently — warn loudly instead.
 _TOP_LEVEL_KEYS = {'race_customization', 'color_schemes', 'tint_categories',
-                   'breeds', 'facemorphs'}
+                   'facemorphs'}
 
 
 def load_customization(races_dir: Path) -> Customization:
@@ -278,16 +291,10 @@ def load_customization(races_dir: Path) -> Customization:
         for name, block in data.get('color_schemes', {}).items():
             cust.color_schemes[name] = _parse_color_scheme(block, name,
                                                            toml_path.name)
-        for entry in data.get('breeds', []):
-            breed = entry.get('breed')
-            parent = entry.get('race')
-            if not breed or not parent:
-                log.warning("%s: breed entry missing 'breed' or 'race': %r",
-                            toml_path.name, entry)
-                continue
-            cust.set_breed(breed, parent, float(entry.get('probability', 0.0)))
+        # Breeds live on [[race_customization]] rows (`breeds = [["Name", prob],
+        # ...]`), handled in _apply_row — a race's breeds belong with its spec.
         for name, blocks in data.get('facemorphs', {}).items():
-            cust.facemorphs[name] = parse_facemorphs(blocks, name)
+            cust.facemorphs[name] = parse_facemorphs(_as_blocks(blocks), name)
     return cust
 
 
@@ -311,8 +318,15 @@ def _parse_tint_categories(block: dict) -> dict:
     return out
 
 
-def _parse_color_scheme(block: dict, name: str, source: str) -> dict:
-    """Parse one [color_schemes.NAME] block: category -> ColorRule.
+def _as_blocks(value):
+    """A scheme/spec value is either one table (an implicit `sex = "both"`
+    block) or a TOML array of per-sex tables. Normalize to a list of blocks.
+    Shared by color schemes and facemorphs so both keys accept either form."""
+    return value if isinstance(value, list) else [value]
+
+
+def _parse_color_block(block: dict, name: str, source: str) -> dict:
+    """One color block -> {category: ColorRule}, skipping the reserved `sex` key.
 
     Category keys are underscored in TOML (Muzzle_Stripe) -> de-underscored
     to match tint categories ('Muzzle Stripe'). Each value is a list whose
@@ -321,6 +335,8 @@ def _parse_color_scheme(block: dict, name: str, source: str) -> dict:
     """
     out: dict = {}
     for raw_cat, entries in block.items():
+        if raw_cat == 'sex':
+            continue
         category = raw_cat.replace('_', ' ')
         prob = 1.0
         colors = []
@@ -335,6 +351,20 @@ def _parse_color_scheme(block: dict, name: str, source: str) -> dict:
                 log.warning("%s color_scheme %s/%s: bad entry %r",
                             source, name, raw_cat, entry)
         out[category] = ColorRule(probability=prob, colors=colors)
+    return out
+
+
+def _parse_color_scheme(blocks, name: str, source: str) -> dict:
+    """Parse a color scheme into {sex|None: {category: ColorRule}}. `blocks` is
+    one table (an implicit `sex = "both"` block) or an array of per-sex tables;
+    each block's `sex` (omitted/`"both"` -> None) scopes its rules. The `both`
+    and matching-sex blocks are merged at lookup by `color_scheme_for`. Mirrors
+    facemorphs' per-sex block model."""
+    out: dict = {}
+    for block in _as_blocks(blocks):
+        block_sex = _normalize_sex(block.get('sex'))
+        out.setdefault(block_sex, {}).update(
+            _parse_color_block(block, name, source))
     return out
 
 
@@ -376,15 +406,39 @@ def _apply_row(cust: Customization, row: dict, source: str) -> None:
             log.warning("%s: %s: unrecognized race_customization key %r - ignored",
                         source, race, key)
     if inline:
+        # The inline rules form this row's sex block of a per-race private
+        # scheme; sex-scoped rows for the same race accumulate their blocks.
         scheme_name = f"__inline__{race}"
-        cust.color_schemes[scheme_name] = _parse_color_scheme(
-            inline, scheme_name, source)
+        cust.color_schemes.setdefault(scheme_name, {})[sex] = \
+            _parse_color_block(inline, scheme_name, source)
         if row.get('colors'):
             log.warning("%s: %s has both colors=%r and inline tint rules; "
                         "inline rules win", source, race, row['colors'])
         cust.colors[race] = scheme_name
     elif row.get('colors'):
         cust.colors[race] = row['colors']
+
+    # Face morphs: a `facemorphs = "Name"` reference to a shared
+    # [facemorphs.Name] block (symmetric with `colors`).
+    if row.get('facemorphs'):
+        cust.facemorph_refs[race] = row['facemorphs']
+
+    # Breeds: a `breeds = [["Name", prob], ...]` list registers breeds under
+    # THIS row's race (parent implicit) — an alternative to the top-level
+    # `breeds` array, keeping a race's breeds with its spec. A breed must not be
+    # declared both here and top-level (set_breed sums probabilities per parent).
+    breeds = row.get('breeds')
+    if breeds is not None and not isinstance(breeds, list):
+        log.warning("%s: %s: 'breeds' must be a list of [name, probability] "
+                    "pairs, got %r - ignored", source, race, breeds)
+    elif breeds:
+        for entry in breeds:
+            if (isinstance(entry, list) and len(entry) == 2
+                    and isinstance(entry[0], str)):
+                cust.set_breed(entry[0], race, float(entry[1]))
+            else:
+                log.warning('%s: %s: malformed breed entry %r - expected '
+                            '["BreedName", probability]', source, race, entry)
 
     for key, hp_cat in _HP_KEYS.items():
         if key in row:

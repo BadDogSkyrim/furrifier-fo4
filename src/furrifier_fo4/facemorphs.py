@@ -233,6 +233,19 @@ class RaceMorphs:
             return None
         return r[sex]["groups"].get(group.lower(), {}).get(preset.lower())
 
+    def groups_for(self, race_edid: str, sex: Sex) -> dict:
+        """{morph-group name -> [preset names]} (all lowercased) for a race+sex,
+        or {}. For validation + name discovery of valid MPGN/MPPN."""
+        r = self._by_race.get(race_edid)
+        if not r:
+            return {}
+        return {g: list(presets) for g, presets in r[sex]["groups"].items()}
+
+    def regions_for(self, race_edid: str, sex: Sex) -> list:
+        """[FMRN region names] (lowercased) for a race+sex, or []."""
+        r = self._by_race.get(race_edid)
+        return list(r[sex]["fmri"].keys()) if r else []
+
     def mppm_for(self, race_edid: str, sex: Sex, mppi: int) -> Optional[str]:
         """The chargen .tri shape-key name (MPPM) for a preset key (MPPI) — the
         bake reads an NPC's MSDK keys back out and needs the morph name to look

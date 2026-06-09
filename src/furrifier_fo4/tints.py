@@ -174,6 +174,22 @@ class RaceTints:
         return option, color
 
 
+def resolve_options(categories: dict, names: dict, key_lower: str) -> list:
+    """Resolve a scheme/default key to a list of TintOptions: a CATEGORY (all
+    its matching layers) or, failing that, an EXACT layer name (just that one).
+    `categories` is {category_key_lower: [glob patterns]}, `names` is
+    `RaceTints.options_by_name` ({layer_lower: [TintOption]}). Shared by
+    apply_tints and catalog validation so both resolve identically."""
+    pats = categories.get(key_lower)
+    if pats is not None:
+        out = []
+        for nm_lower, opts in names.items():
+            if any(wildcard_match(p, nm_lower) for p in pats):
+                out.extend(opts)
+        return out
+    return list(names.get(key_lower, []))
+
+
 def apply_tints(patch, ov: Record, race_edid: str, sex: Sex,
                 signature: str, race_tints: RaceTints,
                 color_scheme=None, categories=None) -> int:
@@ -194,14 +210,7 @@ def apply_tints(patch, ov: Record, race_edid: str, sex: Sex,
         return 0
 
     def resolve(key_lower: str) -> list:
-        pats = categories.get(key_lower)
-        if pats is not None:                       # a category -> matching layers
-            out = []
-            for nm_lower, opts in names.items():
-                if any(wildcard_match(p, nm_lower) for p in pats):
-                    out.extend(opts)
-            return out
-        return list(names.get(key_lower, []))      # else an exact layer name
+        return resolve_options(categories, names, key_lower)
 
     # Scheme keys, lowercased (so `Muzzle_Stripe`/`Muzzle Stripe` resolve the
     # same), order preserved.
