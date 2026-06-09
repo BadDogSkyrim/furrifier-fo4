@@ -101,12 +101,17 @@ _HEADPART_PICKS = (
     ('Hair', 4751, 'HAIR'),
 )
 
+# Children (minimal path) get only eyes + hair — no eyebrows/facial-hair/scar.
+_CHILD_HEADPART_PICKS = tuple(p for p in _HEADPART_PICKS
+                             if p[0] in ('Eyes', 'Hair'))
+
 
 def furrify_npc(patch: Plugin, npc: Record, furry_race: Record,
                 race_edid: str = None, sex=None, signature: str = None,
                 headpart_pools=None, race_tints=None,
                 customization=None, breed_name: str = None,
-                race_morphs=None, bone_regions=None) -> Record:
+                race_morphs=None, bone_regions=None,
+                minimal: bool = False) -> Record:
     """Create a furrified override of `npc` in `patch`, assigned to
     `furry_race`. Returns the new override record.
 
@@ -125,7 +130,7 @@ def furrify_npc(patch: Plugin, npc: Record, furry_race: Record,
                 signature=signature, headpart_pools=headpart_pools,
                 race_tints=race_tints, customization=customization,
                 breed_name=breed_name, race_morphs=race_morphs,
-                bone_regions=bone_regions)
+                bone_regions=bone_regions, minimal=minimal)
     return ov
 
 
@@ -133,7 +138,8 @@ def apply_furry(patch: Plugin, ov: Record, furry_race: Record,
                 race_edid: str = None, sex=None, signature: str = None,
                 headpart_pools=None, race_tints=None,
                 customization=None, breed_name: str = None,
-                race_morphs=None, bone_regions=None) -> Record:
+                race_morphs=None, bone_regions=None,
+                minimal: bool = False) -> Record:
     """Apply the furry appearance (race + skin + per-NPC headparts/tints/weight)
     to an EXISTING patch record `ov`, in place. `furrify_npc` calls this after
     copying a base; variant-expansion calls it on a freshly-minted variant copy
@@ -176,12 +182,19 @@ def apply_furry(patch: Plugin, ov: Record, furry_race: Record,
         npc_wnam = ov.add_subrecord('WNAM', b'\x00\x00\x00\x00')
         patch.write_form_id(npc_wnam, 0, skin_fid)
 
+    # `minimal` (used for children — see session.py) restricts the per-NPC
+    # HEADPART PICKS to eyes + hair (kids get no eyebrows/facial-hair/scar) and
+    # skips morphs, but keeps tints. Other parts fall back to the race default
+    # (resolve_headparts). Narrowed the furry-child crash: a race-default head
+    # was stable where the FULL pool pick crashed; eyes+hair are added back here.
+    picks = _CHILD_HEADPART_PICKS if minimal else _HEADPART_PICKS
+
     # 4. Per-NPC head parts from the race's HDPT pools, gated/constrained by
     # race_customization (probability + optional whitelist).
     # NB: test `sex is not None`, not `sex` — Sex.MALE == 0 is falsy.
     if (headpart_pools is not None and race_edid
             and sex is not None and signature):
-        for type_name, seed, hp_key in _HEADPART_PICKS:
+        for type_name, seed, hp_key in picks:
             rule = (customization.headpart_rule(cust_key, sex, hp_key)
                     if customization is not None else None)
             if rule is not None and rule.probability < 1.0:
@@ -220,7 +233,7 @@ def apply_furry(patch: Plugin, ov: Record, furry_race: Record,
     # morph-group presets, from the race/breed's [[facemorphs]] entry. The spec
     # is keyed on the breed (cust_key); the RACE-record region/preset indices
     # come from the engine race (race_edid). Replaces the morphs cleared above.
-    if (race_morphs is not None and race_edid and sex is not None
+    if (not minimal and race_morphs is not None and race_edid and sex is not None
             and customization is not None):
         morph_spec = customization.facemorphs_for(cust_key)
         if morph_spec is not None:

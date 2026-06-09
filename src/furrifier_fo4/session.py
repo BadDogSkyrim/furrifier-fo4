@@ -150,7 +150,7 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
 
     stats = {'total': 0, 'gated': 0, 'furrified': 0, 'left_human': 0,
              'no_child_race': 0, 'preserved': 0, 'armas_patched': 0,
-             'templated': 0, 'owner_furrified': 0,
+             'templated': 0, 'owner_furrified': 0, 'minimal_children': 0,
              'expanded_owners': 0, 'variants': 0, 'race_counts': {}}
     # ghoul vanilla race EDID -> furry target race name, filled during the run.
     ghoul_targets: dict[str, str] = {}
@@ -189,7 +189,10 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
                     headpart_pools=headpart_pools, race_tints=race_tints,
                     customization=cust,
                     breed_name=(breed.name if breed else None),
-                    race_morphs=race_morphs, bone_regions=bone_regions)
+                    race_morphs=race_morphs, bone_regions=bone_regions,
+                    minimal=is_child)
+        if is_child:
+            stats['minimal_children'] += 1
         stats['furrified'] += 1
         stats['race_counts'][parent_race] = \
             stats['race_counts'].get(parent_race, 0) + 1
@@ -216,7 +219,10 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
                     signature=signature, headpart_pools=headpart_pools,
                     race_tints=race_tints, customization=cust,
                     breed_name=(breed.name if breed else None),
-                    race_morphs=race_morphs, bone_regions=bone_regions)
+                    race_morphs=race_morphs, bone_regions=bone_regions,
+                    minimal=is_child)
+        if is_child:
+            stats['minimal_children'] += 1
         stats['furrified'] += 1
         stats['race_counts'][parent_race] = \
             stats['race_counts'].get(parent_race, 0) + 1

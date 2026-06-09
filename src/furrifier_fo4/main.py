@@ -69,6 +69,9 @@ def run_furrification(
     log.info("  Left human: %d   gated: %d   no-child-race: %d   preserved: %d",
              stats["left_human"], stats["gated"], stats["no_child_race"],
              stats.get("preserved", 0))
+    if stats.get("minimal_children"):
+        log.info("  Children (minimal: race+skin only, no headparts/tints): %d",
+                 stats["minimal_children"])
     log.info("  Templated leaves: %d   -> trait-owners furrified: %d",
              stats.get("templated", 0), stats.get("owner_furrified", 0))
     log.info("  Owners expanded:  %d   -> variants minted: %d",

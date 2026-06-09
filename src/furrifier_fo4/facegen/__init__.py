@@ -236,7 +236,11 @@ def build_facegen_for_patch(patch, plugin_set, data_dir,
             return None, "no_base"
         layers = npc_tint_layers(npc, race_edid, sex, templates)
         if not layers:
-            return None, "no_layers"
+            # No tint layers (e.g. minimal children) is NOT a skip: the furry
+            # head SHAPE differs from vanilla, so the nif must still bake, and a
+            # base-only diffuse (composite of base + no layers = base) keeps the
+            # baked face shape's referenced texture present. Counted for info.
+            stats["no_layers"] += 1
         form_id = f"{npc.form_id.value & 0xFFFFFF:08X}"
         plugin = base_plugin_for(npc, patch)
         info = {
@@ -315,7 +319,7 @@ def build_facegen_for_patch(patch, plugin_set, data_dir,
         if own_resolver:
             resolver.close()
     log.info("facegen: %d FaceCustomization diffuse (+%d aux), %d nifs "
-             "(%d failed); %d no-base, %d no-layers, %d skipped",
+             "(%d failed); %d no-base, %d base-only (no tints), %d skipped",
              stats["baked"], stats["aux"], stats["nif"], stats["nif_failed"],
              stats["no_base"], stats["no_layers"], stats["skipped"])
     return stats

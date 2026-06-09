@@ -67,3 +67,21 @@ def test_missing_mask_keeps_base(tmp_path):
     px = out[0, 0]
     assert abs(float(px[0]) - 10 / 255) < 1e-3
     assert abs(float(px[1]) - 20 / 255) < 1e-3
+
+
+def test_diffuse_dds_has_full_mip_chain():
+    """FO4 streams/mip-samples the FaceCustomization diffuse — a single mip
+    level crashes d3d11 in the shadow/LOD pass. Guard against the Skyrim
+    no-mip carry-over regressing."""
+    import os
+    import struct
+    import tempfile
+    import numpy as np
+    from furrifier_fo4.facegen.dds import write_bc7_dds
+
+    img = (np.random.rand(32, 32, 4) * 255).astype(np.uint8)
+    p = os.path.join(tempfile.mkdtemp(), "m.dds")
+    write_bc7_dds(p, img)
+    hdr = open(p, "rb").read(32)
+    mips = struct.unpack("<I", hdr[28:32])[0]
+    assert mips == 6   # 32->16->8->4->2->1
