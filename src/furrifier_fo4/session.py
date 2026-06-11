@@ -20,10 +20,10 @@ from .loader import load_scheme
 from .models import (
     FURRIFIABLE_RACES, FURRIFIER_AUTHOR, NON_FURRY_TARGETS, is_furrifier_plugin,
 )
-from .templates import is_templated_leaf, resolve_trait_owners
-from .variants import (
-    count_instances, variant_count, expand_owner, EXPAND_THRESHOLD,
+from .templates import (
+    is_templated_leaf, resolve_trait_owners, traits_injection_node,
 )
+from .variants import plan_injections, expand_at_node
 
 log = logging.getLogger(__name__)
 
@@ -228,45 +228,48 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
             stats['race_counts'].get(parent_race, 0) + 1
         return True
 
-    # Variant-expansion: clone-army trait-owners (many placed actors resolving
-    # to one face) get diversified into K furry variants behind a leveled list,
-    # instead of a single in-place furrification. Precompute which owners and how
-    # many variants, from the placed-actor instance count. See variants.py.
-    expand_K: dict = {}
+    # Variant-expansion: clone-army templated NPCs (many placed actors funneling
+    # through one face) get diversified into K furry variants behind a leveled
+    # list. We inject at each leaf's CLOSEST traits template (the injection node),
+    # NOT the deep owner — the engine ignores a Traits redirect on an actor it
+    # selected from a leveled list, so a deep redirect silently falls back to the
+    # template's race (the DC-guard cheetah bug). Precompute the plan from the
+    # placed-actor scan; nodes that already offer enough distinct faces are left
+    # alone. See variants.py.
+    injections: dict = {}
     if variant_expansion:
         emit("Counting placed instances…")     # indeterminate (ACHR scan)
-        all_leaf_owners: set = set()
-        for npc in winning.values():
-            if is_templated_leaf(npc):
-                all_leaf_owners |= resolve_trait_owners(npc, winning, winning_lvln)
-        instances = count_instances(ps, winning, winning_lvln, all_leaf_owners)
-        expand_K = {o: variant_count(instances[o]) for o in all_leaf_owners
-                    if instances.get(o, 0) >= EXPAND_THRESHOLD}
-        log.info("variant-expansion: %d trait-owners, %d above threshold "
-                 "(%d placed instances counted)",
-                 len(all_leaf_owners), len(expand_K), sum(instances.values()))
+        injections = plan_injections(ps, winning, winning_lvln)
+        log.info("variant-expansion: %d injection nodes "
+                 "(%d total placed instances)", len(injections),
+                 sum(p.instances for p in injections.values()))
 
-    def furrify_or_expand(npc) -> bool:
-        """Diversify `npc` into K variants if it's a clone-army owner, else
-        furrify it in place. Returns True if anything furrified."""
-        obj = npc.form_id.value & 0xFFFFFF
-        k = expand_K.get(obj)
-        if k is not None:
-            result = expand_owner(patch, npc, k, furrify_variant)
+    # object_index of every record handled (furrified or deliberately skipped),
+    # so it isn't re-processed in the owner pass.
+    done: set = set()
+    # Trait-owners reached from furrified Use-Traits leaves whose chain is NOT
+    # diversified by an injection — furrify these so those leaves inherit a furry
+    # appearance through their (untouched) template chain.
+    required_owners: set = set()
+
+    # Injection pre-pass: at each planned node, mint K furry variants (copied from
+    # a representative owner below it) and redirect that node's TPTA[Traits] slot
+    # to the variant LVLN. Leaves through these nodes then roll a varied face at
+    # spawn; their deep owners no longer need furrifying for them.
+    if injections:
+        emit("Injecting variant faces", 0, len(injections))
+        for i, (node_obj, plan) in enumerate(injections.items()):
+            _check_cancel(cancel_event)
+            node = winning.get(node_obj)
+            variant_base = winning.get(plan.variant_base)
+            if node is None or variant_base is None:
+                continue
+            result = expand_at_node(patch, node, variant_base, plan.k,
+                                    furrify_variant)
+            done.add(node_obj)          # the node is overridden; don't reprocess
             if result is not None:
                 stats['expanded_owners'] += 1
                 stats['variants'] += len(result.variants)
-                return True
-            # No variant furrified (all rolls gated) — fall back to in-place.
-        return do_furrify(npc)
-
-    # object_index of every furrified record, so a trait-owner already done in
-    # the main pass isn't re-furrified in the owner pass.
-    done: set = set()
-    # Trait-owners reached from furrified Use-Traits leaves — furrify these so
-    # the leaves inherit a furry appearance through their (untouched) template
-    # chain. A heavily-shared owner (e.g. EncRaider01Template) is collected once.
-    required_owners: set = set()
 
     total_npcs = len(winning)
     emit("Furrifying NPCs", 0, total_npcs)
@@ -276,6 +279,8 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
         if stats['total'] % 64 == 0:
             emit("Furrifying NPCs", stats['total'], total_npcs)
         objid = npc.form_id.value & 0xFFFFFF
+        if objid in done:               # injection node already overridden
+            continue
         # Preserve mode: an NPC already furrified by an earlier run (its absolute
         # winner is furrifier output) is left untouched.
         if not refurrify_existing and objid in furrified:
@@ -285,16 +290,20 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
         if only_factions is not None and not (only_factions & facts.factions):
             continue
         # A Use-Traits leaf takes race + appearance from its template, so
-        # furrifying the leaf is dead data + orphan facegen. Record its trait-
-        # owner(s) to furrify instead; the leaf inherits through the chain.
+        # furrifying the leaf is dead data + orphan facegen. If an injection
+        # diversifies its chain (its injection node is planned), it's handled —
+        # skip without collecting owners. Otherwise record its trait-owner(s) to
+        # furrify; the leaf inherits through the (unchanged) chain.
         if is_templated_leaf(npc):
             stats['templated'] += 1
-            required_owners |= resolve_trait_owners(npc, winning, winning_lvln)
+            node = traits_injection_node(npc, objid, winning, winning_lvln)
+            if node not in injections:
+                required_owners |= resolve_trait_owners(npc, winning, winning_lvln)
             continue
         # Mark processed whether or not it furrified — a non-templated NPC that
         # gates out here must not be re-attempted (and re-counted) in the owner
         # pass below.
-        did_furrify = furrify_or_expand(npc)
+        did_furrify = do_furrify(npc)
         done.add(objid)
         if did_furrify and limit is not None and stats['furrified'] >= limit:
             log.info("hit limit of %d", limit)
@@ -312,7 +321,7 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
             owner = winning.get(owner_obj)
             if owner is None:
                 continue
-            if furrify_or_expand(owner):
+            if do_furrify(owner):
                 done.add(owner_obj)
                 stats['owner_furrified'] += 1
                 if limit is not None and stats['furrified'] >= limit:

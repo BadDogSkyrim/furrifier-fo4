@@ -94,6 +94,31 @@ def is_templated_leaf(npc) -> bool:
     return uses_traits(npc) and traits_template_object(npc) is not None
 
 
+def traits_injection_node(leaf, leaf_obj: int, winning_npc: dict,
+                          winning_lvln: dict) -> Optional[int]:
+    """object_index of the node whose ``TPTA[Traits]`` slot to redirect when
+    injecting appearance variety for `leaf`.
+
+    The engine honors a Traits redirect on a template reached by a DIRECT
+    TPLT/TPTA link, but NOT on an actor it selected from a leveled list — so we
+    redirect as close to the leaf as possible, before any leveled hop. That is
+    the leaf's IMMEDIATE Traits template if it's an NPC; if the immediate target
+    is a leveled list (no NPC there to carry the redirect), the leaf itself is
+    the node. Returns None if the leaf has no Traits template at all.
+
+    (Redirecting the deep trait-OWNER instead fails when that owner is reached
+    through a leveled list — the chain falls back to its TPLT, e.g. cheetah.)
+    """
+    t = traits_template_object(leaf)
+    if t is None:
+        return None
+    if t in winning_lvln:          # leaf points straight at a leveled list
+        return leaf_obj
+    if t in winning_npc:           # redirect the immediate template NPC (direct)
+        return t
+    return None
+
+
 def resolve_trait_owners(npc, winning_npc: dict, winning_lvln: dict) -> set:
     """The set of trait-owner object_indexes `npc` resolves to.
 

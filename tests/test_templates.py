@@ -11,6 +11,7 @@ import struct
 from furrifier_fo4.templates import (
     uses_traits, template_object, tpta_traits_object, traits_template_object,
     lvln_entry_objects, is_templated_leaf, resolve_trait_owners,
+    traits_injection_node,
 )
 
 
@@ -96,6 +97,39 @@ def test_is_templated_leaf_requires_both_flag_and_tplt():
     assert is_templated_leaf(npc(use_traits=True, tplt=0x10)) is True
     assert is_templated_leaf(npc(use_traits=True, tplt=None)) is False
     assert is_templated_leaf(npc(use_traits=False, tplt=0x10)) is False
+
+
+# ----------------------------------------------------------- injection node --
+
+def test_injection_node_is_the_immediate_template_npc():
+    # leaf -> LvlSec(NPC) -> LChar(LVLN) -> owners. The redirect must land on the
+    # immediate NPC template (reached by a direct link), NOT a deep owner reached
+    # through the leveled list (the DC-guard cheetah bug).
+    leaf = npc(use_traits=True, tplt=0x200)            # 0x200 = LvlSec (an NPC)
+    win_npc = {0x100: leaf, 0x200: npc(use_traits=True, tplt=0x300)}
+    win_lvln = {0x300: lvln(0x10, 0x20)}               # LChar
+    assert traits_injection_node(leaf, 0x100, win_npc, win_lvln) == 0x200
+
+
+def test_injection_node_is_leaf_when_immediate_target_is_leveled():
+    # leaf -> LVLN directly: no NPC template to carry the redirect, so the leaf
+    # itself is the node.
+    leaf = npc(use_traits=True, tplt=0x300)
+    win_npc = {0x100: leaf}
+    win_lvln = {0x300: lvln(0x10, 0x20)}
+    assert traits_injection_node(leaf, 0x100, win_npc, win_lvln) == 0x100
+
+
+def test_injection_node_follows_tpta_traits_over_tplt():
+    # TPTA[Traits] wins over TPLT for the immediate target.
+    leaf = npc(use_traits=True, tplt=0x999, tpta_traits=0x200)
+    win_npc = {0x100: leaf, 0x200: npc(use_traits=False)}
+    assert traits_injection_node(leaf, 0x100, win_npc, {}) == 0x200
+
+
+def test_injection_node_none_without_template():
+    leaf = npc(use_traits=True)
+    assert traits_injection_node(leaf, 0x100, {0x100: leaf}, {}) is None
 
 
 # ---------------------------------------------------- TPTA Traits override ----

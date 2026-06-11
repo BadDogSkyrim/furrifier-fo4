@@ -22,8 +22,10 @@ from ..loader import load_scheme
 from ..models import (
     FURRIFIABLE_RACES, NON_FURRY_TARGETS, Sex, is_furrifier_plugin,
 )
-from ..templates import is_templated_leaf, resolve_trait_owners
-from ..variants import count_instances, variant_count, EXPAND_THRESHOLD
+from ..templates import (
+    is_templated_leaf, resolve_trait_owners, traits_injection_node,
+)
+from ..variants import plan_injections
 from ..tints import RaceTints
 from ..facegen import base_plugin_for, build_facegen_for_patch
 from ..facegen.assets import AssetResolver
@@ -123,7 +125,7 @@ class PreviewSession:
         # Placed-actor instance counts per trait-owner (lazy — the ACHR scan is
         # only needed once a templated NPC is previewed), and a per-leaf cache of
         # the resolved face-option list.
-        self._instances: Optional[dict] = None
+        self._injections: Optional[dict] = None
         self._options_cache: dict = {}
 
     def list_npcs(self) -> list:
@@ -156,39 +158,41 @@ class PreviewSession:
         out.sort(key=lambda t: t[1].lower())
         return out
 
-    def _ensure_instances(self) -> dict:
-        """Placed-actor instance count per trait-owner (the same scan the run
-        uses to size variant-expansion). Computed once, lazily."""
-        if self._instances is None:
-            owner_set: set = set()
-            for npc in self.base_winning.values():
-                if is_templated_leaf(npc):
-                    owner_set |= resolve_trait_owners(
-                        npc, self.base_winning, self.winning_lvln)
-            self._instances = count_instances(
-                self.ps, self.base_winning, self.winning_lvln, owner_set)
-        return self._instances
+    def _ensure_injections(self) -> dict:
+        """The variant-injection plan the run uses (node_obj -> InjectionPlan),
+        from the placed-actor scan. Computed once, lazily."""
+        if self._injections is None:
+            self._injections = plan_injections(
+                self.ps, self.base_winning, self.winning_lvln)
+        return self._injections
 
     def _face_options(self, objid: int, npc) -> list:
         """The true set of faces a templated `npc` can spawn with, matching what
-        the run produces: each trait-owner contributes its K variant signatures
-        if it's variant-expanded (placed instances >= threshold), else its one
-        canonical face. Each option is (owner_objid, owner_edid, signature,
-        variant_index|None). Empty for a non-templated NPC. Cached per leaf."""
+        the run produces. If its chain is diversified by an injection (its
+        injection node is planned), the faces are the K variants minted at that
+        node — each copied from the same owner base, edid `<node>_F##`. Otherwise
+        each furrifiable trait-owner contributes its one canonical face. Each
+        option is (copy_from_objid, label_edid, signature, variant_index|None).
+        Empty for a non-templated NPC. Cached per leaf."""
         cached = self._options_cache.get(objid)
         if cached is not None:
             return cached
-        owners = self.furrifiable_owners(npc)
         opts = []
-        if owners:
-            instances = self._ensure_instances()
-            for owner_obj, owner_edid in owners:
-                n = instances.get(owner_obj, 0)
-                if n >= EXPAND_THRESHOLD:
-                    for i in range(variant_count(n)):
-                        opts.append((owner_obj, owner_edid,
-                                     f"{owner_edid}_F{i:02d}", i))
-                else:
+        if is_templated_leaf(npc):
+            injections = self._ensure_injections()
+            node = traits_injection_node(
+                npc, objid, self.base_winning, self.winning_lvln)
+            plan = injections.get(node)
+            if plan is not None:
+                node_rec = (self.base_winning.get(node)
+                            or self.winning.get(node))
+                node_edid = ((node_rec.editor_id if node_rec else None)
+                             or f"{node:08X}")
+                for i in range(plan.k):
+                    opts.append((plan.variant_base, node_edid,
+                                 f"{node_edid}_F{i:02d}", i))
+            else:
+                for owner_obj, owner_edid in self.furrifiable_owners(npc):
                     opts.append((owner_obj, owner_edid,
                                  self.scheme.signature_for(owner_edid), None))
         self._options_cache[objid] = opts

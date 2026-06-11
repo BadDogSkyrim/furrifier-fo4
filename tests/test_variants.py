@@ -1,4 +1,4 @@
-"""Unit tests for variant-expansion sizing + the instance scan (variants.py).
+"""Unit tests for variant-expansion sizing + injection planning (variants.py).
 
 Pure: synthetic records, no game files. The minting / LVLN / TPTA wiring is
 exercised against live data in the integration validation, not here (it needs a
@@ -7,7 +7,9 @@ real patch + esplib FormID fixups).
 
 import struct
 
-from furrifier_fo4.variants import variant_count, count_instances
+from furrifier_fo4.variants import (
+    variant_count, plan_injections, SUFFICIENT_FACES, EXPAND_THRESHOLD,
+)
 
 
 def test_variant_count_clamps_and_scales():
@@ -19,7 +21,7 @@ def test_variant_count_clamps_and_scales():
     assert variant_count(290) == 24    # cap
 
 
-# --- count_instances with fakes -------------------------------------------
+# --- fakes ----------------------------------------------------------------
 
 class _Sub:
     def __init__(self, signature, data):
@@ -56,10 +58,14 @@ def _acbs(use_traits):
     return _Sub('ACBS', bytes(d))
 
 
-def _npc(use_traits=False, tplt=None):
+def _npc(use_traits=False, tplt=None, tpta_traits=None):
     subs = [_acbs(use_traits)]
     if tplt is not None:
         subs.append(_Sub('TPLT', struct.pack('<I', tplt)))
+    if tpta_traits is not None:
+        d = bytearray(52)
+        struct.pack_into('<I', d, 0, tpta_traits)
+        subs.append(_Sub('TPTA', bytes(d)))
     return _Rec(*subs)
 
 
@@ -72,37 +78,83 @@ def _achr(base_obj):
     return _Rec(_Sub('NAME', struct.pack('<I', base_obj)))
 
 
-def test_count_instances_tallies_through_template_to_owner():
-    # Two ACHRs placed as a Use-Traits leaf that resolves to one owner.
-    leaf = _npc(use_traits=True, tplt=0x200)
-    owner = _npc(use_traits=False)
-    win_npc = {0x100: leaf, 0x200: owner}
-    ps = [_Plugin([_achr(0x100), _achr(0x100)])]
-    counts = count_instances(ps, win_npc, {}, owner_set={0x200})
-    assert counts == {0x200: 2}
+# --- plan_injections ------------------------------------------------------
+
+def test_plan_injects_at_closest_template_not_deep_owner():
+    # DC-guard topology: leaf -> LvlSec(NPC) -> LChar(LVLN) -> {M01, M02}.
+    # The redirect must land on the immediate NPC template (0x200), reached by a
+    # direct link, NOT the deep owners behind the leveled list.
+    leaf, lvlsec = 0x100, 0x200
+    lchar = 0x300
+    win_npc = {
+        leaf: _npc(use_traits=True, tplt=lvlsec),
+        lvlsec: _npc(use_traits=True, tplt=lchar),
+        0x10: _npc(use_traits=False),
+        0x20: _npc(use_traits=False),
+    }
+    win_lvln = {lchar: _lvln(0x10, 0x20)}
+    ps = [_Plugin([_achr(leaf)] * 5)]   # 5 placed guards
+    plans = plan_injections(ps, win_npc, win_lvln)
+    assert set(plans) == {lvlsec}
+    p = plans[lvlsec]
+    assert p.instances == 5
+    assert p.faces == {0x10, 0x20}
+    assert p.variant_base == 0x10       # min of the owners below
+    assert p.k == variant_count(5)
 
 
-def test_count_instances_direct_owner_placement_counts():
-    owner = _npc(use_traits=False)
-    win_npc = {0x200: owner}
-    ps = [_Plugin([_achr(0x200), _achr(0x200), _achr(0x200)])]
-    counts = count_instances(ps, win_npc, {}, owner_set={0x200})
-    assert counts == {0x200: 3}
+def test_plan_injects_at_leaf_when_immediate_target_is_leveled():
+    # leaf -> LVLN directly: no NPC template, so the leaf itself is the node.
+    leaf, lchar = 0x100, 0x300
+    win_npc = {leaf: _npc(use_traits=True, tplt=lchar),
+               0x10: _npc(False), 0x20: _npc(False)}
+    win_lvln = {lchar: _lvln(0x10, 0x20)}
+    ps = [_Plugin([_achr(leaf)] * 4)]
+    plans = plan_injections(ps, win_npc, win_lvln)
+    assert set(plans) == {leaf}
+    assert plans[leaf].faces == {0x10, 0x20}
 
 
-def test_count_instances_ignores_bases_not_in_owner_set():
-    # A placed NPC that isn't a tracked trait-owner contributes nothing.
-    win_npc = {0x300: _npc(use_traits=False)}
-    ps = [_Plugin([_achr(0x300), _achr(0x999)])]   # 0x999 unknown base
-    counts = count_instances(ps, win_npc, {}, owner_set={0x200})
-    assert counts == {}
+def test_plan_skips_chain_with_enough_faces():
+    # A leaf reaching >= SUFFICIENT_FACES distinct owners is already varied.
+    leaf, lchar = 0x100, 0x300
+    owners = list(range(0x10, 0x10 + SUFFICIENT_FACES))   # exactly the floor
+    win_npc = {leaf: _npc(use_traits=True, tplt=lchar)}
+    win_npc.update({o: _npc(False) for o in owners})
+    win_lvln = {lchar: _lvln(*owners)}
+    ps = [_Plugin([_achr(leaf)] * 50)]
+    assert plan_injections(ps, win_npc, win_lvln) == {}
 
 
-def test_count_instances_lvln_fanout_counts_each_owner():
-    leaf_obj = 0x500
-    leaf = _npc(use_traits=True, tplt=0x100)      # leaf -> LVLN -> two owners
-    win_lvln = {0x100: _lvln(0x10, 0x20)}
-    win_npc = {leaf_obj: leaf, 0x10: _npc(False), 0x20: _npc(False)}
-    ps = [_Plugin([_achr(leaf_obj), _achr(leaf_obj)])]
-    counts = count_instances(ps, win_npc, win_lvln, owner_set={0x10, 0x20})
-    assert counts == {0x10: 2, 0x20: 2}
+def test_plan_skips_below_instance_threshold():
+    leaf, lvlsec, lchar = 0x100, 0x200, 0x300
+    win_npc = {leaf: _npc(use_traits=True, tplt=lvlsec),
+               lvlsec: _npc(use_traits=True, tplt=lchar),
+               0x10: _npc(False)}
+    win_lvln = {lchar: _lvln(0x10)}
+    ps = [_Plugin([_achr(leaf)] * (EXPAND_THRESHOLD - 1))]
+    assert plan_injections(ps, win_npc, win_lvln) == {}
+
+
+def test_plan_ignores_direct_non_templated_placements():
+    # A directly-placed concrete NPC (not a Use-Traits leaf) is furrified in
+    # place, never injected — even when placed many times.
+    win_npc = {0x10: _npc(use_traits=False)}
+    ps = [_Plugin([_achr(0x10)] * 20)]
+    assert plan_injections(ps, win_npc, {}) == {}
+
+
+def test_plan_aggregates_shared_node_across_leaf_types():
+    # Different leaf bases sharing one immediate template accumulate together.
+    a, b, lvlsec, lchar = 0x100, 0x101, 0x200, 0x300
+    win_npc = {
+        a: _npc(use_traits=True, tplt=lvlsec),
+        b: _npc(use_traits=True, tplt=lvlsec),
+        lvlsec: _npc(use_traits=True, tplt=lchar),
+        0x10: _npc(False), 0x20: _npc(False),
+    }
+    win_lvln = {lchar: _lvln(0x10, 0x20)}
+    ps = [_Plugin([_achr(a), _achr(a), _achr(b), _achr(b)])]
+    plans = plan_injections(ps, win_npc, win_lvln)
+    assert set(plans) == {lvlsec}
+    assert plans[lvlsec].instances == 4
