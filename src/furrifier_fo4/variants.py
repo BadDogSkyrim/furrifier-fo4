@@ -36,7 +36,7 @@ import logging
 import struct
 
 from .templates import (is_templated_leaf, resolve_trait_owners,
-                        traits_injection_node)
+                        traits_injection_node, lvln_entry_objects)
 
 log = logging.getLogger(__name__)
 
@@ -84,6 +84,20 @@ def plan_injections(plugin_set, winning_npc: dict, winning_lvln: dict) -> dict:
     chain won't naturally vary. Non-templated/direct placements are not injected
     (furrified in place as before). Returns {node_obj: InjectionPlan}.
     """
+    # Nodes selectable FROM a leveled list must never be injected: setting
+    # UseTraits + a Traits redirect on such a shared record breaks every leaf
+    # that SELECTS it from a leveled list — the engine won't follow a Traits
+    # redirect on a leveled-selected actor, so it falls back to the record's
+    # TPLT (wrong body / no furry head; the raider "Gen-2-synth body, no head"
+    # bug). Those leaves fall back to the owner pass (furrify the owners in
+    # place), which is correct for BOTH direct and leveled consumers — and the
+    # leveled list already distributes among several furrified owners, so
+    # variety survives. (A node reached only by DIRECT TPLT/TPTA links, e.g.
+    # LvlSecurityDiamondCity, is safe and still injected.)
+    lvln_entries: set = set()
+    for _l in winning_lvln.values():
+        lvln_entries.update(lvln_entry_objects(_l))
+
     inst: dict = {}            # node -> instance count
     faces: dict = {}           # node -> set(owner objs)
     resolved: dict = {}        # base_obj -> (node, frozenset(owners)) | None
@@ -116,6 +130,8 @@ def plan_injections(plugin_set, winning_npc: dict, winning_lvln: dict) -> dict:
 
     plans: dict = {}
     for node, n in inst.items():
+        if node in lvln_entries:        # leveled-selectable -> unsafe to redirect
+            continue
         fc = faces.get(node, set())
         # Need >=1 real owner to copy as the variant base; skip dead-end chains.
         if n >= EXPAND_THRESHOLD and 0 < len(fc) < SUFFICIENT_FACES:

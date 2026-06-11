@@ -144,6 +144,22 @@ def test_plan_ignores_direct_non_templated_placements():
     assert plan_injections(ps, win_npc, {}) == {}
 
 
+def test_plan_skips_leveled_selectable_node():
+    # A face owner reached directly (injection node = itself) but ALSO an entry
+    # in a leveled list must NOT be injected — redirecting it breaks the leaves
+    # that select it from that list (raider Gen-2-synth bug). It falls back to
+    # the owner pass instead.
+    leaf, owner = 0x100, 0x200
+    win_npc = {
+        leaf: _npc(use_traits=True, tplt=owner),      # leaf -> owner directly
+        owner: _npc(use_traits=False),
+    }
+    # owner is also an entry in some unrelated leveled list
+    win_lvln = {0x300: _lvln(owner, 0x201)}
+    ps = [_Plugin([_achr(leaf)] * 10)]
+    assert plan_injections(ps, win_npc, win_lvln) == {}
+
+
 def test_plan_aggregates_shared_node_across_leaf_types():
     # Different leaf bases sharing one immediate template accumulate together.
     a, b, lvlsec, lchar = 0x100, 0x101, 0x200, 0x300
