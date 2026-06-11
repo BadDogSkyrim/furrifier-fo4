@@ -111,10 +111,24 @@ class Scheme:
     # -- signature / classification ----------------------------------------
 
     def signature_for(self, editor_id: str) -> str:
-        """The hashing signature for an NPC: its alias's first entry if the
-        NPC is part of an alias, else its own EditorID. Records sharing an
-        alias hash identically — they ARE one NPC."""
+        """The APPEARANCE hashing signature for an NPC: its alias's first entry
+        if the NPC is part of an alias, else its own EditorID. Records sharing an
+        alias hash identically — they ARE one NPC. Family members keep DISTINCT
+        appearance signatures (relatives, not clones — distinct headparts/tints)."""
         return self._alias_of.get(editor_id.lower(), editor_id)
+
+
+    def breed_signature_for(self, editor_id: str) -> str:
+        """The signature for traits a family/alias SHARES — race AND breed. A
+        family member (leader included) maps to the family leader; otherwise the
+        alias signature (or own EditorID). So a family shares one breed (Riley &
+        Kyle are both the same Deer breed) while still varying their headparts/
+        tints via `signature_for`. The race is already shared via the leader
+        recursion in `resolve_race`; this gives the breed roll the same key."""
+        fam = self._family_leader.get(editor_id.lower())
+        if fam is not None:
+            return fam
+        return self.signature_for(editor_id)
 
 
     def classify(self, facts: NpcFacts) -> Optional[str]:

@@ -111,7 +111,7 @@ def furrify_npc(patch: Plugin, npc: Record, furry_race: Record,
                 headpart_pools=None, race_tints=None,
                 customization=None, breed_name: str = None,
                 race_morphs=None, bone_regions=None,
-                minimal: bool = False) -> Record:
+                minimal: bool = False, breed_signature: str = None) -> Record:
     """Create a furrified override of `npc` in `patch`, assigned to
     `furry_race`. Returns the new override record.
 
@@ -130,7 +130,8 @@ def furrify_npc(patch: Plugin, npc: Record, furry_race: Record,
                 signature=signature, headpart_pools=headpart_pools,
                 race_tints=race_tints, customization=customization,
                 breed_name=breed_name, race_morphs=race_morphs,
-                bone_regions=bone_regions, minimal=minimal)
+                bone_regions=bone_regions, minimal=minimal,
+                breed_signature=breed_signature)
     return ov
 
 
@@ -139,7 +140,7 @@ def apply_furry(patch: Plugin, ov: Record, furry_race: Record,
                 headpart_pools=None, race_tints=None,
                 customization=None, breed_name: str = None,
                 race_morphs=None, bone_regions=None,
-                minimal: bool = False) -> Record:
+                minimal: bool = False, breed_signature: str = None) -> Record:
     """Apply the furry appearance (race + skin + per-NPC headparts/tints/weight)
     to an EXISTING patch record `ov`, in place. `furrify_npc` calls this after
     copying a base; variant-expansion calls it on a freshly-minted variant copy
@@ -148,18 +149,25 @@ def apply_furry(patch: Plugin, ov: Record, furry_race: Record,
     `race_edid` is the ENGINE race (parent) — used for headpart pools and tint
     options. A breed (a visual flavor of that race) is either given explicitly
     via `breed_name` (the scheme targeted a breed) or rolled from the race's
-    distribution on `signature`; the breed name then keys the appearance
-    customization (headpart whitelist, colors, weight), falling back to the
-    parent race. So each variant of a clone-army owner can roll a different
-    breed."""
+    distribution on `breed_signature` (or `signature` if not given); the breed
+    name then keys the appearance customization (headpart whitelist, colors,
+    weight), falling back to the parent race. So each variant of a clone-army
+    owner can roll a different breed.
+
+    `breed_signature` is the FAMILY-shared hashing key for the breed roll: family
+    members pass their leader's signature here so relatives share a breed (e.g.
+    Riley & Kyle, both the same Deer breed) while still varying their headparts/
+    tints via the per-member `signature`. Defaults to `signature`."""
     patch.add_recursive_masters(furry_race.plugin)
 
     # Resolve the breed: explicit (scheme targeted a breed) or rolled from the
-    # parent race's breed distribution. cust_key drives the customization
-    # lookups; the engine race (race_edid) drives pools + tint options.
+    # parent race's breed distribution, hashed on the family-shared breed
+    # signature. cust_key drives the customization lookups; the engine race
+    # (race_edid) drives pools + tint options.
+    breed_sig = breed_signature or signature
     if (breed_name is None and customization is not None and race_edid
-            and signature):
-        rolled = customization.roll_breed(signature, race_edid)
+            and breed_sig):
+        rolled = customization.roll_breed(breed_sig, race_edid)
         breed_name = rolled.name if rolled is not None else None
     cust_key = breed_name or race_edid
 

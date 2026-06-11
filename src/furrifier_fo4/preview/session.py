@@ -227,6 +227,7 @@ class PreviewSession:
         template_index = 0
         parent_race = None
         breed_name = None
+        breed_signature = None      # family-shared breed key (non-templated path)
 
         if objid in self.furrified and not refurrify:
             # Show the existing result: copy the already-furry winning record
@@ -274,6 +275,11 @@ class PreviewSession:
             else:
                 target = npc
                 signature = self.scheme.signature_for(npc.editor_id or "")
+                # Family members share a breed (rolled on the leader's key) while
+                # varying headparts/tints via their own signature — matches the
+                # run (session.do_furrify passes breed_signature_for).
+                breed_signature = self.scheme.breed_signature_for(
+                    npc.editor_id or "")
 
             race_name = self.resolved_race(target)
             if race_name is None:
@@ -283,7 +289,8 @@ class PreviewSession:
             # displayed race name becomes the breed when one applies.
             parent_race, breed = self.cust.resolve_race_or_breed(race_name)
             if breed is None:
-                breed = self.cust.roll_breed(signature, parent_race)
+                breed = self.cust.roll_breed(breed_signature or signature,
+                                             parent_race)
             breed_name = breed.name if breed else None
             race_name = breed_name or parent_race
             is_child = is_child_npc(self.extractor, target)

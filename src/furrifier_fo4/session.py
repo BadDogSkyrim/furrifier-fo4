@@ -186,6 +186,8 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
         furrify_npc(patch, npc, furry_race,
                     race_edid=parent_race, sex=sex,
                     signature=scheme.signature_for(npc.editor_id or ''),
+                    breed_signature=scheme.breed_signature_for(
+                        npc.editor_id or ''),
                     headpart_pools=headpart_pools, race_tints=race_tints,
                     customization=cust,
                     breed_name=(breed.name if breed else None),

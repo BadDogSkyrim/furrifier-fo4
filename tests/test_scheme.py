@@ -307,6 +307,22 @@ class TestResolveRace:
             "alias members must share the first-entry signature"
 
 
+    def test_family_shares_breed_signature(self):
+        # A family shares ONE breed (Riley & Kyle are the same Deer breed): the
+        # breed signature collapses to the leader, even though the appearance
+        # signature stays per-member.
+        members = ['JackCabot', 'EmogeneCabotOld', 'LorenzoCabot']
+        breed_sigs = {self.s.breed_signature_for(m) for m in members}
+        assert breed_sigs == {'JackCabot'}, \
+            "family members must share the leader's breed signature"
+        # ...while appearance signatures stay distinct.
+        assert {self.s.signature_for(m) for m in members} == set(members)
+        # Aliases share the breed signature too (it's the same NPC).
+        assert self.s.breed_signature_for('DN088_Kellogg') == 'Kellogg'
+        # A non-family/non-alias NPC just uses its own EditorID.
+        assert self.s.breed_signature_for('SomeRandomNPC') == 'SomeRandomNPC'
+
+
     def test_family_member_can_break_away(self):
         # Give Emogene her own assignment; she leaves the family race.
         sc = SCHEME + '\n"EmogeneCabotOld" = "FFOWolfRace"\n'
