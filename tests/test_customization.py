@@ -202,6 +202,21 @@ def test_parse_tint_categories_de_underscores_and_lowercases():
     assert cats['skin tone'] == ['Skin tone']
 
 
+def test_hair_variant_prefix_file_scoped(tmp_path):
+    (tmp_path / 'a.toml').write_text(
+        'hair_variant_prefix = "FFO_"\n'
+        '[[race_customization]]\nrace = "RaceA"\n')
+    (tmp_path / 'b.toml').write_text(
+        '[[race_customization]]\nrace = "RaceB"\n')
+    c = load_customization(tmp_path)
+    assert c.hair_variant_prefix_for('RaceA') == 'FFO_'
+    assert c.hair_variant_prefix_for('RaceB') is None  # b.toml sets none
+
+
+def test_hair_variant_prefix_default_none():
+    assert Customization().hair_variant_prefix_for('Whatever') is None
+
+
 def test_tint_categories_are_file_scoped(tmp_path):
     (tmp_path / 'a.toml').write_text(
         '[tint_categories]\nMask = ["*mask*"]\n'
@@ -294,7 +309,8 @@ def test_top_level_known_keys_no_warn(tmp_path, caplog):
         '[[race_customization]]\n'
         'race = "FoxRace"\n'
         'child_race = "FoxChildRace"\n'
-        'breeds = [["B", 0.5]]\n\n'
+        'breeds = [["B", 0.5]]\n'
+        'hair_variant_prefix = "FFO_"\n\n'
         '[tint_categories]\n'
         'Mask = ["face mask*"]\n\n'
         '[color_schemes.Foo]\n'

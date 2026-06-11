@@ -18,7 +18,7 @@ class_match = [
 [[class_probabilities]]
 class = "CLASS_ALL"
 races = [
-  ["FFOLionRace", 100], 
+  ["FFODeerRace", 100], 
 ]
 
 [[class_probabilities]]

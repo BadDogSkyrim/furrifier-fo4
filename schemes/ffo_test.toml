@@ -1,8 +1,16 @@
 # FFO test scheme: BadDog's FFO Furrifier race probabilities, filtered to
 # the furry races present in this load order (FurryFallout.esp). Absent
 # race packs (Dinosaur, Shark, K9, ProtoArgonian, Deathclaw) are dropped.
-#
-# Weights are relative within each class (not percentages).
+
+#  This hair is never assigned randomly.
+exclude_headparts = [
+  "DLC03_HairFemale36", "FFO_DLC03_HairFemale36_*", # Acid rain 
+  "DLC03_HairFemale37", "FFO_DLC03_HairFemale37*", # Beta rays
+  "DLC03_HairMale46", "FFO_DLC03_HairMale46_*", # Gamma dream
+  "DLC03_HairMale47", "FFO_DLC03_HairMale47_*", # Chemical storm
+  "HairFemale33", "FFO_HairFemale33_", "HairMale44", "FFO_HairMale44_*", # Megaton
+  "HairFemale34", "FFO_HairFemale34_*", # Hornet's nest
+]
 
 [[class_probabilities]]
 class = "CLASS_MINUTEMEN"
@@ -197,3 +205,4 @@ races = [
 "DLC04Gage" = "FFOHyenaRace"
 "PrestonGarvey" = "FFOLionRace"
 "DLC03_CompanionOldLongfellow" = "FFOOtterRace"
+

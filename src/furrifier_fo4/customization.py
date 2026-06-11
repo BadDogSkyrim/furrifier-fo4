@@ -96,6 +96,11 @@ class Customization:
         # race-or-breed -> facemorph name (a `facemorphs = "Name"` reference,
         # symmetric with `colors`/color_schemes).
         self.facemorph_refs: dict[str, str] = {}
+        # race -> hair-variant EditorID prefix (file-scoped, like tint
+        # categories). FFO names a furry hair `FFO_<vanilla>_<group>`, so the
+        # hair pick can preserve an NPC's own style via its furry variant. Other
+        # mods set their own prefix; absent = no variant mapping for that race.
+        self.hair_variant_prefixes: dict[str, str] = {}
 
 
     def child_race(self, race_edid: str) -> Optional[str]:
@@ -204,6 +209,13 @@ class Customization:
         return self.tint_categories.get(race_edid, {})
 
 
+    def hair_variant_prefix_for(self, race_edid: str) -> Optional[str]:
+        """The hair-variant EditorID prefix for the race's file, or None. When
+        set, the hair pick prefers a `<prefix><vanilla-hair>` furry variant of
+        the NPC's own style over a random reroll."""
+        return self.hair_variant_prefixes.get(race_edid)
+
+
     def weight_range(self, race_or_breed: str, sex: Sex):
         """Return [(lo,hi)*3] for thin/musc/fat, or None (no remap). Falls back
         breed -> parent -> '*'."""
@@ -263,7 +275,7 @@ def _parse_headpart_value(val) -> HeadpartRule:
 # set is almost always a typo (e.g. `color_scheme`, `breed`, `race_customizaton`)
 # whose whole section would otherwise vanish silently — warn loudly instead.
 _TOP_LEVEL_KEYS = {'race_customization', 'color_schemes', 'tint_categories',
-                   'facemorphs'}
+                   'facemorphs', 'hair_variant_prefix'}
 
 
 def load_customization(races_dir: Path) -> Customization:
@@ -283,11 +295,14 @@ def load_customization(races_dir: Path) -> Customization:
                             "(expected one of %s)", toml_path.name, key,
                             ', '.join(sorted(_TOP_LEVEL_KEYS)))
         file_categories = _parse_tint_categories(data.get('tint_categories', {}))
+        file_hair_prefix = data.get('hair_variant_prefix')
         for row in data.get('race_customization', []):
             _apply_row(cust, row, toml_path.name)
             race = row.get('race')
             if race and file_categories:
                 cust.tint_categories[race] = file_categories
+            if race and file_hair_prefix:
+                cust.hair_variant_prefixes[race] = str(file_hair_prefix)
         for name, block in data.get('color_schemes', {}).items():
             cust.color_schemes[name] = _parse_color_scheme(block, name,
                                                            toml_path.name)

@@ -153,10 +153,30 @@ def resolve_shape_alpha(shape, resolver):
 class BaseHeadTextures:
     """(race, sex) -> {diffuse, normal, specular} Data-relative paths."""
 
-    def __init__(self, headpart_pools, resolver):
+    def __init__(self, headpart_pools, resolver, races_by_edid=None):
         self.pools = headpart_pools
         self.resolver = resolver
+        # race EDID -> RACE record, so the base head comes from the race's
+        # DEFAULT head (what the NPC wears) rather than the FLST-based pool —
+        # FFO lists some child heads only on the ADULT race's FLST, leaving the
+        # child race's pool empty even though its RACE record defines the head.
+        self.races_by_edid = races_by_edid or {}
         self._cache: dict = {}
+
+    def _face_heads(self, race_edid: str, sex: Sex) -> list:
+        """The Face head part(s) for a race+sex: the RACE record's default head
+        (authoritative — what the NPC actually wears), falling back to the FLST
+        pool when the race record is unavailable or defines no Face head."""
+        from .headparts_resolve import (_race_default_headparts, _hdpt_type,
+                                         HDPT_FACE)
+        race = self.races_by_edid.get(race_edid)
+        if race is not None:
+            faces = [d for d in _race_default_headparts(
+                        race, sex == Sex.FEMALE, self.pools.plugin_set)
+                     if _hdpt_type(d) == HDPT_FACE]
+            if faces:
+                return faces
+        return self.pools.pool(race_edid, sex, "Face")
 
     def _material_textures(self, shape) -> Optional[dict]:
         """Texture paths from the shape's BGSM/BGEM material, or None if the
@@ -206,13 +226,28 @@ class BaseHeadTextures:
         key = (race_edid, sex)
         if key in self._cache:
             return self._cache[key]
+        from .headparts_resolve import _texture_overrides
         result = None
-        for hp in self.pools.pool(race_edid, sex, "Face"):
-            modl = hp.get_subrecord("MODL")
-            if modl is None:
-                continue
-            model_rel = modl.data.rstrip(b"\x00").decode("cp1252", "replace")
-            result = self._read_nif_textures(model_rel)
+        for hp in self._face_heads(race_edid, sex):
+            # The head HDPT's TNAM->TXST override is the authoritative per-race
+            # head texture (what the CK bakes from), so prefer it over the nif's
+            # material. FFO's furry child heads all share the generic vanilla
+            # `childmalehead.BGSM`, so reading the material gives every species
+            # the same (wrong) child diffuse — the TXST is the per-species one.
+            tex = _texture_overrides(hp, self.pools.plugin_set)
+            if tex.get("Diffuse"):
+                result = {
+                    "diffuse": _norm_tex(tex["Diffuse"]),
+                    "normal": _norm_tex(tex["Normal"]) if tex.get("Normal") else None,
+                    "specular": (_norm_tex(tex["Specular"])
+                                 if tex.get("Specular") else None),
+                }
+            else:
+                modl = hp.get_subrecord("MODL")
+                if modl is None:
+                    continue
+                model_rel = modl.data.rstrip(b"\x00").decode("cp1252", "replace")
+                result = self._read_nif_textures(model_rel)
             if result is not None:
                 break
         self._cache[key] = result

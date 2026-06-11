@@ -23,7 +23,8 @@ log = logging.getLogger(__name__)
 # always a typo or a section in the wrong file (e.g. [[facemorphs]], which
 # belongs in a race catalog, not a scheme) — warn instead of silently dropping
 # the whole section.
-_SCHEME_KEYS = {'class_match', 'class_probabilities', 'npc_assignments'}
+_SCHEME_KEYS = {'class_match', 'class_probabilities', 'npc_assignments',
+                'exclude_headparts'}
 _BUILTIN_KEYS = {'class_match', 'aliases', 'families'}
 
 
@@ -123,6 +124,10 @@ def parse_scheme(builtin_data: dict, scheme_data: dict) -> Scheme:
         scheme_data.get('class_probabilities', []), 'scheme')
     for edid, race in scheme_data.get('npc_assignments', {}).items():
         scheme.npc_assignments[edid] = str(race)
+
+    # Headparts the scheme never wants applied (exact EDID, case-insensitive).
+    scheme.exclude_headparts = {
+        str(e).lower() for e in scheme_data.get('exclude_headparts', [])}
 
     scheme.build_indexes()
     _validate(scheme)

@@ -94,6 +94,28 @@ class TestLoader:
         assert s.npc_assignments['JackCabot'] == 'FFOCheetahRace'
 
 
+    def test_exclude_headparts_parses_lowercased(self):
+        s = make_scheme(BUILTIN, '''
+exclude_headparts = ["RadHair01", "HairMagazine02"]
+[[class_probabilities]]
+class = "CLASS_SETTLER"
+races = [["FFOFoxRace", 100]]
+''')
+        assert s.exclude_headparts == {'radhair01', 'hairmagazine02'}
+
+
+    def test_exclude_headparts_default_empty(self):
+        s = make_scheme(BUILTIN, SCHEME)
+        assert s.exclude_headparts == set()
+
+
+    def test_exclude_headparts_is_an_allowed_top_level_key(self, caplog):
+        with caplog.at_level('WARNING'):
+            _lint_top_level({'exclude_headparts': []}, _SCHEME_KEYS, 's.toml')
+        assert not any('exclude_headparts' in r.message
+                       for r in caplog.records)
+
+
     def test_scheme_classes_prepended(self):
         scheme = '''
         class_match = [["CLASS_FARHARBOR", "FACTION", "FarHarborFaction"]]

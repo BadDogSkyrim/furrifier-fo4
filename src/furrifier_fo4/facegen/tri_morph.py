@@ -72,8 +72,11 @@ def morphed_verts(base_verts: list, tri_path: str, morphs: list) -> list:
     if cm is None:
         return base_verts
     if len(base_verts) != cm.vert_count:
-        log.warning("head shape has %d verts but chargen tri has %d; morphs "
-                    "skipped", len(base_verts), cm.vert_count)
+        # Expected for non-head parts whose own tri doesn't match (e.g. the deer
+        # mouth tri carries a couple extra verts); that part just keeps its tri
+        # morphs off and relies on the facebone region path. DEBUG, not WARNING.
+        log.debug("shape has %d verts but chargen tri has %d; tri morphs "
+                  "skipped", len(base_verts), cm.vert_count)
         return base_verts
 
     deltas = [[0.0, 0.0, 0.0] for _ in range(cm.vert_count)]

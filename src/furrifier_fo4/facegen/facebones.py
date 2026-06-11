@@ -217,9 +217,12 @@ def facebone_displacements(shape, deltas: dict, skeleton=None) -> np.ndarray:
     for bare, D in deltas.items():
         B_head, affected = _bind_in_head_space(shape, bare, skeleton)
         if B_head is None:
-            log.warning("facebone %r: not a head skin bone and no skinned "
-                        "descendant in the facebone skeleton; region skipped",
-                        bare)
+            # Expected now that every part is region-morphed: a part is only
+            # skinned to the bones it follows (the mouth has jaw bones, not the
+            # nose bone), so a region's bone legitimately misses on other parts.
+            # DEBUG, not WARNING.
+            log.debug("facebone %r: not a skin bone of this shape and no "
+                      "skinned descendant; region skipped for it", bare)
             continue
         M = B_head @ np.asarray(D) @ np.linalg.inv(B_head)
         moved = (homog @ M.T)[:, :3] - verts          # per-vert full displacement

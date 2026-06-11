@@ -438,15 +438,28 @@ class PreviewPane(QWidget):
                 self.status_label.setText("No data dir — can't resolve textures")
                 return
         edid = self._editor_id_for(self._last_objid)
-        self.status_label.setText(
-            f"{edid} ({self._last_objid:08X})" if edid else nif_path.name)
+        label = (f"{edid} ({self._last_objid:08X})" if edid
+                 else nif_path.name)
+        self.status_label.setText(label)
+        if not nif_path.exists():
+            # The bake produced no nif (e.g. the race resolved no base head, or
+            # the NPC was otherwise unbakeable). Surface a clear message instead
+            # of an opaque "could not open nif" crash, but keep a full report in
+            # the log — the bake already logged the per-NPC reason just above.
+            log.error("no facegen nif for %s at %s - the bake skipped it; see "
+                      "the 'facegen: no nif for ...' line above for the reason",
+                      label, nif_path)
+            self.status_label.setText(f"No head baked for {label} - see log")
+            self.headparts_label.setText("")
+            self.reframe_button.setEnabled(False)
+            return
         self._reset_camera_next = False
         try:
             self.scene.set_nif(nif_path, Path(data_dir), bake_root=bake_root,
                                preserve_camera=preserve, skin_tone=skin_tone)
             self.reframe_button.setEnabled(True)
         except Exception as exc:
-            log.exception("scene load failed")
+            log.exception("scene load failed for %s (%s)", label, nif_path)
             self.status_label.setText(f"Scene load failed: {exc}")
         self._update_headparts_label(nif_path)
 

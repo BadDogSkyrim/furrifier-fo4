@@ -163,6 +163,11 @@ def apply_furry(patch: Plugin, ov: Record, furry_race: Record,
         breed_name = rolled.name if rolled is not None else None
     cust_key = breed_name or race_edid
 
+    # Capture the NPC's own hair BEFORE the clear wipes its PNAMs, so the hair
+    # pick can preserve that style (or its furry variant) instead of rerolling.
+    preserve_hair = (headpart_pools.current_headpart_edid(ov, 'Hair')
+                     if headpart_pools is not None else None)
+
     # 1. Clean vanilla appearance.
     for sig in _CLEAR_SIGS:
         ov.remove_subrecords(sig)
@@ -189,6 +194,12 @@ def apply_furry(patch: Plugin, ov: Record, furry_race: Record,
     # was stable where the FULL pool pick crashed; eyes+hair are added back here.
     picks = _CHILD_HEADPART_PICKS if minimal else _HEADPART_PICKS
 
+    # Children pick their (minimal) head parts from the CHILD race's pools, not
+    # the parent's. A child's eyes must come from the child eye pool (child-size
+    # mesh + child texture); the adult pool would hand a deer child an adult
+    # ungulate eye. Adults are unchanged (pool_race == race_edid).
+    pool_race = (furry_race.editor_id if minimal else race_edid) or race_edid
+
     # 4. Per-NPC head parts from the race's HDPT pools, gated/constrained by
     # race_customization (probability + optional whitelist).
     # NB: test `sex is not None`, not `sex` — Sex.MALE == 0 is falsy.
@@ -201,8 +212,18 @@ def apply_furry(patch: Plugin, ov: Record, furry_race: Record,
                 if hash_string(signature, seed + 1, 100) >= rule.probability * 100:
                     continue
             whitelist = rule.whitelist if rule is not None else ()
-            hp = headpart_pools.pick(race_edid, sex, type_name, signature,
-                                     seed, whitelist=whitelist)
+            # Hair preserves the NPC's own style via its furry variant; other
+            # types don't (no per-style mapping convention for them).
+            if type_name == 'Hair':
+                preserve = preserve_hair
+                vprefix = (customization.hair_variant_prefix_for(pool_race)
+                           if customization is not None else None)
+            else:
+                preserve = vprefix = None
+            hp = headpart_pools.pick(pool_race, sex, type_name, signature,
+                                     seed, whitelist=whitelist,
+                                     preserve_edid=preserve,
+                                     variant_prefix=vprefix)
             if hp is None:
                 continue
             hp_fid = hp.normalize_form_id(hp.form_id)

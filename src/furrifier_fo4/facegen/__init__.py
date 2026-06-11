@@ -220,7 +220,8 @@ def build_facegen_for_patch(patch, plugin_set, data_dir,
     if own_resolver:
         resolver = AssetResolver.for_data_dir(Path(data_dir))
     if base_heads is None:
-        base_heads = BaseHeadTextures(pools, resolver)
+        base_heads = BaseHeadTextures(pools, resolver,
+                                      races_by_edid=races_by_edid)
 
     def _resolve_info(npc):
         """Parent-side resolution: turn one patch NPC into a fully picklable
@@ -264,13 +265,17 @@ def build_facegen_for_patch(patch, plugin_set, data_dir,
             morphs = _npc_morphs(npc, race_edid, sex, race_morphs)
             fb_deltas = _facebone_deltas(npc, race_edid, sex, bone_regions)
             if morphs or fb_deltas:
+                # Attach the NPC's morphs to EVERY head part, not just the Face:
+                # a separate part (e.g. the deer mouth) must deform with the head
+                # or it detaches from the morphed snout/jaw. Each part applies
+                # them through its OWN chargen tri + facebones nif; parts lacking
+                # those (or with a vert-count mismatch) are skipped by the guards
+                # in `assemble`, so this is safe across all parts.
                 for h in headparts:
-                    if h.get("hdpt_type") == HDPT_FACE:
-                        if morphs:
-                            h["morphs"] = morphs
-                        if fb_deltas:
-                            h["facebone_deltas"] = fb_deltas
-                        break
+                    if morphs:
+                        h["morphs"] = morphs
+                    if fb_deltas:
+                        h["facebone_deltas"] = fb_deltas
             info["headparts"] = headparts
             info["nif_path"] = str(nif_dir_for(plugin) / f"{form_id}.nif")
             info["hair_palette_scale"] = hair_scale_for(npc)
@@ -287,6 +292,14 @@ def build_facegen_for_patch(patch, plugin_set, data_dir,
                 continue
             info, skip = _resolve_info(npc)
             if skip is not None:
+                # Name the NPC + reason so a skipped bake (notably "no_base":
+                # the race resolved no head) is a real per-NPC report, not just
+                # an aggregate count — the previewer points the user here.
+                if skip in ("no_base", "skipped"):
+                    log.warning("facegen: no nif for %s (%08X) - %s "
+                                "(race %s)", npc.editor_id or "?",
+                                npc.form_id.value & 0xFFFFFF, skip,
+                                extractor.race_of(npc) or "?")
                 stats[skip] += 1
                 continue
             work.append(info)

@@ -169,9 +169,11 @@ def _apply_facebones(base_verts: list, facebones_rel: str, deltas: dict,
     shape = load_facebones_shape(str(fb_path))
     if shape is None or len(shape.verts) != len(base_verts):
         if shape is not None:
-            log.warning("facebones nif %s has %d verts, head has %d; region "
-                        "morphs skipped", facebones_rel, len(shape.verts),
-                        len(base_verts))
+            # Per-part now: a part whose facebones nif vert count doesn't match
+            # its shape just skips region morphs (kept as DEBUG to avoid spam).
+            log.debug("facebones nif %s has %d verts, shape has %d; region "
+                      "morphs skipped", facebones_rel, len(shape.verts),
+                      len(base_verts))
         return base_verts
     # The facebone skeleton supplies the bone hierarchy so a region that drives
     # a control bone (e.g. skin_bone_L_Ear) deforms the head's descendant skin
@@ -251,13 +253,16 @@ def build_facegen_nif(form_id: str, base_plugin: str, headparts: list,
     for hp, src_shape in sources:
         is_face = hp.get("hdpt_type") == HDPT_FACE
         ft = face_textures if is_face else None
-        # Bake face morphs into the Face shape's verts: chargen tri shape keys
-        # (phase 2) then facebone region deformation (phase 3). Both are vertex
-        # displacements on the shared head vert order.
+        # Bake face morphs into EVERY part's verts (not just the Face): chargen
+        # tri shape keys (phase 2) then facebone region deformation (phase 3),
+        # each through this part's own tri / facebones nif, so a separate part
+        # like the deer mouth deforms with the head instead of detaching from
+        # the morphed snout. Parts without a matching tri/facebones nif fall
+        # through the inner guards unchanged.
         verts = None
         morphs = hp.get("morphs")
         fb_deltas = hp.get("facebone_deltas")
-        if is_face and (morphs or fb_deltas):
+        if morphs or fb_deltas:
             verts = list(src_shape.verts)
             if morphs and hp.get("chargen_tri"):
                 tri_path = resolver.resolve(hp["chargen_tri"])

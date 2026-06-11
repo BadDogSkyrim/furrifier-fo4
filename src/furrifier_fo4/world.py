@@ -81,7 +81,10 @@ class FurryWorld:
         # Per-record indexes (scheme-independent).
         self.extractor = FactExtractor(self.ps)
         self.races = RaceLibrary(self.ps, child_races=self.cust.child_races)
-        self.headpart_pools = HeadpartPools(self.ps)
+        # Pools are built scheme-independently (they describe every race
+        # honestly); the scheme's exclude list only filters at pick time.
+        self.headpart_pools = HeadpartPools(
+            self.ps, exclude=self.scheme.exclude_headparts)
         self.race_tints = RaceTints(self.ps)
         self.race_morphs = RaceMorphs(self.ps)
         self.bone_regions = FacialBoneRegions(self.data)
@@ -94,15 +97,17 @@ class FurryWorld:
         validate_customization(self.cust, self.race_morphs, self.race_tints,
                                self.bone_regions)
 
-        # Facegen indexes (the AssetResolver BA2 scan is the expensive one).
-        self.tint_templates = RaceTintTemplates(self.ps)
-        self.resolver = AssetResolver.for_data_dir(self.data)
-        self.base_heads = BaseHeadTextures(self.headpart_pools, self.resolver)
         self.races_by_edid: dict = {}
         for plugin in self.ps:
             for r in plugin.get_records_by_signature("RACE"):
                 if r.editor_id:
                     self.races_by_edid[r.editor_id] = r
+
+        # Facegen indexes (the AssetResolver BA2 scan is the expensive one).
+        self.tint_templates = RaceTintTemplates(self.ps)
+        self.resolver = AssetResolver.for_data_dir(self.data)
+        self.base_heads = BaseHeadTextures(self.headpart_pools, self.resolver,
+                                           races_by_edid=self.races_by_edid)
 
         # `winning` = absolute winner per objid (incl. furrifier output).
         # `base_winning` = winner among NON-furrifier plugins (the vanilla/mod

@@ -18,7 +18,7 @@ from typing import Optional
 from esplib import Record, flst_forms
 
 from .models import Sex
-from .util import hash_string
+from .util import hash_string, wildcard_match
 
 log = logging.getLogger(__name__)
 
@@ -35,8 +35,13 @@ _HDPT_FEMALE = 0x04
 class HeadpartPools:
     """race EDID -> sex -> type name -> [HDPT record], built from the load order."""
 
-    def __init__(self, plugin_set):
+    def __init__(self, plugin_set, exclude=()):
         self.plugin_set = plugin_set
+        # EditorID patterns never picked from any pool — a scheme-level
+        # exclusion (e.g. rad/magazine hair). Each is a wildcard_match pattern
+        # ('*' allowed at start and/or end; a bare string = exact). Filtered at
+        # pick time, NOT at build time, so pools still describe each race.
+        self.exclude = tuple(exclude)
         # pools[(race_edid, sex)][type_name] -> list[Record]
         self._pools: dict = defaultdict(lambda: defaultdict(list))
         self._build()
@@ -54,9 +59,15 @@ class HeadpartPools:
                     race_edid_by_fid[r.normalize_form_id(r.form_id).value] = \
                         r.editor_id
 
+        # normalized HDPT FormID -> (editor_id, type_name), so we can read back
+        # an NPC's currently-assigned headpart of a given type (for preserve).
+        self._hp_by_fid: dict[int, tuple] = {}
         seen = set()
         for plugin in self.plugin_set:
             for hp in plugin.get_records_by_signature('HDPT'):
+                fid = hp.normalize_form_id(hp.form_id).value
+                self._hp_by_fid.setdefault(
+                    fid, (hp.editor_id or '', self._hp_type(hp)))
                 edid = hp.editor_id
                 if not edid or edid in seen:
                     continue
@@ -123,14 +134,63 @@ class HeadpartPools:
         return self._pools.get((race_edid, sex), {}).get(type_name, [])
 
 
+    def _is_excluded(self, editor_id: str) -> bool:
+        return any(wildcard_match(p, editor_id) for p in self.exclude)
+
+
+    def current_headpart_edid(self, record, type_name: str) -> Optional[str]:
+        """EditorID of `record`'s currently-assigned headpart of `type_name`
+        (the first matching PNAM), or None. Read before furrification clears the
+        NPC's PNAMs, so the hair pick can preserve the NPC's own style."""
+        for pnam in record.get_subrecords('PNAM'):
+            if pnam.size < 4:
+                continue
+            fid = record.normalize_form_id(pnam.get_form_id()).value
+            info = self._hp_by_fid.get(fid)
+            if info is not None and info[1] == type_name:
+                return info[0]
+        return None
+
+
+    @staticmethod
+    def _preferred(candidates: list, preserve_edid: str,
+                   variant_prefix: Optional[str]) -> list:
+        """Candidates that preserve the NPC's identity: its own headpart if it's
+        valid for the race (tier 1), else `<prefix><edid>` furry variants of it
+        (tier 2). A variant matches `prefix+edid` exactly or with a `_`-delimited
+        suffix, so vanilla `HairMale1` can't grab `FFO_HairMale10_*`."""
+        pe = preserve_edid.lower()
+        own = [c for c in candidates if (c.editor_id or '').lower() == pe]
+        if own:
+            return own
+        if not variant_prefix:
+            return []
+        stem = (variant_prefix + preserve_edid).lower()
+        return [c for c in candidates
+                if (c.editor_id or '').lower() == stem
+                or (c.editor_id or '').lower().startswith(stem + '_')]
+
+
     def pick(self, race_edid: str, sex: Sex, type_name: str,
-             signature: str, seed: int, whitelist=()) -> Optional[Record]:
+             signature: str, seed: int, whitelist=(),
+             preserve_edid: Optional[str] = None,
+             variant_prefix: Optional[str] = None) -> Optional[Record]:
         """Deterministically pick one headpart of `type_name` for an NPC.
 
-        `whitelist` (EditorIDs), when non-empty, restricts the candidate pool
-        to those headparts — e.g. race_customization forcing deer to use only
-        a specific antler set. Returns None if the (filtered) pool is empty
-        (caller leaves that slot to the race's defaults).
+        Precedence:
+          1. `whitelist` (EditorIDs), when non-empty, restricts the pool to
+             those headparts (e.g. forcing deer to a specific antler set). It
+             wins outright — it may even name a globally-excluded part, honored.
+          2. `preserve_edid` (the NPC's own headpart of this type): if it's
+             valid for the race, keep it; else a `<variant_prefix><preserve_edid>`
+             furry variant of it (e.g. FFO's per-race hair). This **bypasses
+             `exclude`** — an NPC whose vanilla hair was rad-damaged keeps the
+             matching furry rad hair, while ordinary NPCs never get it at random.
+          3. Otherwise a random pick over the pool, with scheme-level
+             `self.exclude` (wildcard EditorID patterns) removed.
+
+        Returns None if the resulting pool is empty (caller leaves that slot to
+        the race default).
         """
         candidates = self.pool(race_edid, sex, type_name)
         if not candidates:
@@ -142,10 +202,22 @@ class HeadpartPools:
             filtered = [c for c in candidates
                         if (c.editor_id or '').lower() in wl]
             if filtered:
-                candidates = filtered
-            else:
-                log.warning("headpart whitelist %r for %s %s matched nothing "
-                            "in pool; using full pool", whitelist, race_edid,
-                            type_name)
+                # Whitelist is authoritative — exclusion does not apply.
+                idx = hash_string(signature, seed, len(filtered))
+                return filtered[idx]
+            log.warning("headpart whitelist %r for %s %s matched nothing "
+                        "in pool; using full pool", whitelist, race_edid,
+                        type_name)
+        if preserve_edid:
+            preferred = self._preferred(candidates, preserve_edid,
+                                        variant_prefix)
+            if preferred:
+                idx = hash_string(signature, seed, len(preferred))
+                return preferred[idx]
+        if self.exclude:
+            candidates = [c for c in candidates
+                          if not self._is_excluded(c.editor_id or '')]
+            if not candidates:
+                return None
         idx = hash_string(signature, seed, len(candidates))
         return candidates[idx]

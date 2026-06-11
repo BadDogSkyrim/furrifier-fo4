@@ -84,6 +84,9 @@ class Scheme:
     _family_leader: dict[str, str] = field(default_factory=dict)
     # editor_id -> race (explicit per-NPC assignment)
     npc_assignments: dict[str, str] = field(default_factory=dict)
+    # HDPT EditorIDs (lowercased) the scheme never wants applied — e.g. rad or
+    # magazine hair. Handed to HeadpartPools, which filters them at pick time.
+    exclude_headparts: set[str] = field(default_factory=set)
 
 
     def build_indexes(self) -> None:
