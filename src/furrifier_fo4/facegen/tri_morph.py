@@ -84,7 +84,14 @@ def morphed_verts(base_verts: list, tri_path: str, morphs: list) -> list:
     for name, weight in morphs:
         verts = cm.morphs.get(name)
         if verts is None:
-            log.warning("chargen morph %r not in tri; skipped", name)
+            # The RACE record lists this preset's chargen-morph (MPPM) name, but
+            # the actual .tri doesn't implement that shape key — an FFO data
+            # incompleteness, not a furrifier/catalog error (the catalog only
+            # ever applies presets the race offers, and apply_facemorphs /
+            # validate already warn when it references one the race lacks). The
+            # morph just deforms nothing here. DEBUG, not WARNING — it's expected
+            # and would otherwise spam once per NPC.
+            log.debug("chargen morph %r not in tri; skipped", name)
             continue
         for i in range(cm.vert_count):
             b, v, d = cm.basis[i], verts[i], deltas[i]

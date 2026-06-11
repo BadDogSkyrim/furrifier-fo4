@@ -295,3 +295,26 @@ def test_morphed_verts_applies_weighted_delta():
         assert tri_morph.morphed_verts(base, "fake", []) is base
     finally:
         tri_morph._cache.pop("fake", None)
+
+
+def test_morphed_verts_skips_missing_tri_morph_without_warning(caplog):
+    # A race-listed morph absent from the .tri (FFO data incompleteness) is
+    # skipped silently at bake time (DEBUG, not WARNING — it would otherwise spam
+    # once per NPC); present morphs still apply.
+    import logging
+    from furrifier_fo4.facegen import tri_morph
+
+    class _FakeCM:
+        basis = [(0.0, 0.0, 0.0)]
+        morphs = {"Real": [(2.0, 0.0, 0.0)]}
+        vert_count = 1
+
+    tri_morph._cache["fake"] = _FakeCM()
+    try:
+        with caplog.at_level(logging.WARNING, logger=tri_morph.log.name):
+            out = tri_morph.morphed_verts(
+                [(0.0, 0.0, 0.0)], "fake", [("Missing", 1.0), ("Real", 0.5)])
+        assert out == [(1.0, 0.0, 0.0)]          # only "Real" applied
+        assert "not in tri" not in caplog.text   # missing one warned nothing
+    finally:
+        tri_morph._cache.pop("fake", None)
