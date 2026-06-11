@@ -187,19 +187,40 @@ def _apply_facebones(base_verts: list, facebones_rel: str, deltas: dict,
 
 def build_facegen_nif(form_id: str, base_plugin: str, headparts: list,
                       resolver: AssetResolver, dst_path: Path,
-                      hair_palette_scale: Optional[float] = None) -> bool:
+                      hair_palette_scale: Optional[float] = None,
+                      base_normal: Optional[str] = None,
+                      base_specular: Optional[str] = None,
+                      aux_textures: bool = False) -> bool:
     """Assemble and write the facegeom nif for one NPC. Returns True on success.
 
-    `headparts` come from `resolve_headparts`. The Face part's textures are
-    pointed at the baked FaceCustomization set under `base_plugin`.
+    `headparts` come from `resolve_headparts`. The Face part's Diffuse is always
+    the per-NPC baked FaceCustomization `_d` under `base_plugin`.
+
+    The Normal/Specular are RACE-CONSTANT (FFO tints only the diffuse), so by
+    default the head points at the SHARED base-head maps (`base_normal` /
+    `base_specular`, textures-relative) instead of a per-NPC `_msn`/`_s` — the
+    per-NPC duplication multiplied face-texture VRAM ~7x and crashed the
+    renderer in crowds. A missing base map falls through to the head shape's own
+    resolved texture. `aux_textures=True` points the head back at the per-NPC
+    `_msn`/`_s` set (for a future pass that bakes layers onto the normal, e.g.
+    scars); the caller must also write those files (`bake_aux`).
+
     `hair_palette_scale` (the NPC's HCLF hair-color position, 0..1) colours the
     hair shape via greyscale-to-palette; None leaves the source default.
     """
     face_textures = {
         "Diffuse": f"{_FACECUST}\\{base_plugin}\\{form_id}_d.dds",
-        "Normal": f"{_FACECUST}\\{base_plugin}\\{form_id}_msn.dds",
-        "Specular": f"{_FACECUST}\\{base_plugin}\\{form_id}_s.dds",
     }
+    if aux_textures:
+        face_textures["Normal"] = f"{_FACECUST}\\{base_plugin}\\{form_id}_msn.dds"
+        face_textures["Specular"] = f"{_FACECUST}\\{base_plugin}\\{form_id}_s.dds"
+    else:
+        # Shared race maps; omit (fall through to the source head's own slot)
+        # when the base head defines no normal/specular.
+        if base_normal:
+            face_textures["Normal"] = base_normal
+        if base_specular:
+            face_textures["Specular"] = base_specular
 
     # Open each source nif once; collect shapes + bone bind-pose transforms.
     # We keep the source bone node's FULL transform (rotation + translation),

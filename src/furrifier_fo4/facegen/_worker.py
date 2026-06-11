@@ -98,7 +98,10 @@ def bake_from_info(info: Dict[str, Any], resolver) -> _Result:
         try:
             ok = build_facegen_nif(form_id, info["plugin"], info["headparts"],
                                    resolver, Path(info["nif_path"]),
-                                   hair_palette_scale=info["hair_palette_scale"])
+                                   hair_palette_scale=info["hair_palette_scale"],
+                                   base_normal=base.get("normal"),
+                                   base_specular=base.get("specular"),
+                                   aux_textures=info["bake_aux"])
             nif = 1 if ok else 0
             nif_failed = 0 if ok else 1
         except Exception as exc:

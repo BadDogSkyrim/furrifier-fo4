@@ -6,11 +6,16 @@ For each furrified NPC override in the patch, bake the per-NPC
 
   - `_d`   diffuse: the race's base head diffuse with the NPC's tint layers
            composited in using their real FO4 blend ops (`composite.py`), the
-           part the CK flattens to plain alpha-over.
-  - `_msn` normal, `_s` specular: a straight copy of the base head's maps. FFO
-           tints only the diffuse — no race composites layers onto normal/spec —
-           so these pass through unchanged (the compositor could blend them too
-           if a race ever used that tint capability).
+           part the CK flattens to plain alpha-over. This is genuinely per-NPC.
+
+The normal (`_msn`) and specular (`_s`) are RACE-CONSTANT — FFO tints only the
+diffuse — so the baked nif's head points its Normal/Specular slots straight at
+the shared base-head maps instead of writing an identical per-NPC `_msn`/`_s`
+for every NPC of a race. That duplication multiplied face-texture VRAM ~7x
+(2048² normal+spec per NPC vs vanilla's 1024²/512²) and exhausted the GPU in
+crowds, AV-ing the renderer's shadow/deferred-prepass pass. `bake_aux=True`
+restores the old per-NPC copies (for a future pass that bakes layers onto the
+normal, e.g. scars); the nif then points back at the per-NPC maps.
 
 FO4 also runtime-generates the head geometry when a facegeom nif is missing,
 but doing so for a whole cell of furrified NPCs at once spikes load-time
@@ -119,7 +124,7 @@ def build_facegen_for_patch(patch, plugin_set, data_dir,
                             output_size: Optional[int] = None,
                             only_npc: Optional[set] = None,
                             make_png: bool = False,
-                            bake_aux: bool = True,
+                            bake_aux: bool = False,
                             bake_nif: bool = True,
                             exclude_hdpt_types: tuple = (),
                             extractor=None,
@@ -143,7 +148,10 @@ def build_facegen_for_patch(patch, plugin_set, data_dir,
 
     `output_dir` defaults to `data_dir`. `only_npc` restricts to a set of
     EditorIDs. `make_png` also writes a PNG beside each DDS for eyeballing.
-    `bake_aux` also copies the base head normal (_msn) and specular (_s).
+    `bake_aux` writes a per-NPC copy of the base head normal (_msn) and
+    specular (_s) and points the baked head at them. Default off: the head
+    points at the shared race base-head maps instead (see module docstring) —
+    these maps are race-constant, so per-NPC copies just waste VRAM.
     `bake_nif` assembles the facegeom nif (else texture-only).
 
     The plugin-set-scoped indexes (`extractor`, `templates`, `pools`,
