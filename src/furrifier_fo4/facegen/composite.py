@@ -134,5 +134,11 @@ def build_facecustomization_dds(form_id: str, base_diffuse: str,
     rgb = composite_diffuse(resolver, base_diffuse, layers, output_size)
     out_dir.mkdir(parents=True, exist_ok=True)
     dds_path = out_dir / f"{form_id}_d.dds"
+    # Full mip chain (mips=True). FO4's shadow/depth pre-pass
+    # (BSDFPrePassShader -> BuildTextureCommandBuffer) requests a mip level on
+    # the face diffuse; with mipMapCount=1 it dereferences a non-existent mip and
+    # the GPU access-violates in crowds (Diamond City, confirmed 2026-06-13).
+    # CK ships these as mipMapCount=1, but that's a latent crash it was never
+    # crowd-tested against — we must keep the chain.
     write_bc7_dds(dds_path, _to_uint8_rgba(rgb))
     return dds_path

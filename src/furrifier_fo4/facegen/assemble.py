@@ -38,12 +38,13 @@ ensure_dev_path()
 from pyn.pynifly import NifFile  # noqa: E402
 from pyn.structs import TransformBuf  # noqa: E402
 from pyn.nifdefs import PynBufferTypes  # noqa: E402
+from pyn.nifconstants import ShaderFlags1FO4  # noqa: E402
 
 log = logging.getLogger(__name__)
 
 _GAME = "FO4"
-_ROOT_TYPE = "NiNode"
-_ROOT_FLAGS = 0x400E  # 16398, matches vanilla FO4 facegeom roots.
+_ROOT_TYPE = "BSFadeNode"
+_ROOT_FLAGS = 0x2000400E  # matches CK FO4 facegeom roots (BSFadeNode)
 _FACECUST = "textures\\Actors\\Character\\FaceCustomization"
 # The single shared hair-color gradient LUT. FO4 hair shapes use
 # "greyscale-to-palette-color": the grayscale diffuse is mapped through this
@@ -59,13 +60,68 @@ def _identity() -> TransformBuf:
     return xf
 
 
+# FO4 head-region skeleton bone names, canonical case. The engine binds skin to
+# the skeleton BY NAME, and some FFO source head nifs miscase the main head bone
+# as "HEAD" — a miscased bone never binds, so the head never attaches/positions
+# correctly in-game (renders dark/wrong, fine in NifSkope). CK canonicalizes
+# against the skeleton; we do the same. Unknown bones pass through unchanged.
+_CANON_BONES = {
+    n.lower(): n for n in (
+        "Head", "Neck", "Neck1_skin", "Neck_skin", "Neck_Low_skin",
+        "Head_skin", "Chest", "Chest_skin", "Chest_Rear_Skin",
+        "LArm_Collarbone_skin", "RArm_Collarbone_skin",
+    )
+}
+
+
+def _canon_bone(name: str) -> str:
+    return _CANON_BONES.get(name.lower(), name)
+
+
+# BSLightingShaderProperty shader types we care about for facegen.
+_SHADER_DEFAULT = 0
+_SHADER_GLOW = 2
+_SHADER_FACE_TINT = 4
+_SHADER_SKIN_TINT = 5
+
+
+def _facegen_shader_type(material, current_type: int) -> int:
+    """The facegen shader type CK assigns, derived from the BGSM material.
+
+    CK derives the type from the material (baked inline), not the source nif's
+    shader block — and FFO source nifs sometimes author it wrong. Two confirmed
+    corrections:
+
+    - `glowmap` material -> Glow. A glowmap hair left as Default makes the FO4
+      renderer build a corrupt texture command buffer and access-violate in
+      crowds (Diamond City). This is the load-bearing fix.
+    - A Face/Skin-Tint type on a NON-skin-tinted material -> Default (e.g. FFO
+      horns authored as Face_Tint), matching CK.
+
+    `material` is None for shapes with no resolvable BGSM; then the type is left
+    unchanged.
+    """
+    if material is None:
+        return current_type
+    if getattr(material, "glowmap", False):
+        return _SHADER_GLOW
+    if (not getattr(material, "skinTint", False)
+            and current_type in (_SHADER_FACE_TINT, _SHADER_SKIN_TINT)):
+        return _SHADER_DEFAULT
+    return current_type
+
+
 def _copy_shape(dst: NifFile, fg, src_shape, resolver, face_textures=None,
                 texture_overrides=None, hair_palette_scale=None,
-                verts=None) -> None:
+                verts=None, rename_to=None) -> None:
     """Copy one source head-part shape into `dst` under `fg`, verbatim.
 
     `verts` overrides the source vertices (used to bake the head's chargen face
     morphs into the Face shape); None copies them unchanged.
+
+    `rename_to` names the output shape (the part's HDPT EditorID); CK renames
+    each facegen shape to its HDPT EDID, and the engine appears to match
+    shape -> HDPT -> tri by name. None keeps the source shape name.
 
     For a greyscale-to-palette (hair) shape, restore the shared hair-color
     gradient in the Greyscale slot and set grayscaleToPaletteScale to
@@ -75,24 +131,34 @@ def _copy_shape(dst: NifFile, fg, src_shape, resolver, face_textures=None,
     uvs = list(src_shape.uvs) if src_shape.uvs else []
     normals = list(src_shape.normals) if src_shape.normals else None
     new_shape = dst.createShapeFromData(
-        src_shape.name, verts if verts is not None else list(src_shape.verts),
+        rename_to or src_shape.name,
+        verts if verts is not None else list(src_shape.verts),
         list(src_shape.tris), uvs,
         normals, use_type=PynBufferTypes.BSSubIndexTriShapeBufType, parent=fg)
-    new_shape.transform = src_shape.transform
+    # Identity local transform, matching CK. CK positions the head via the skin
+    # (identity bone rotation + skin-to-bone), not a baked shape transform.
+    # Carrying the source's +120 shape transform diverged from CK's frame and
+    # broke the face in-game — tangent-space _msn normals are frame-sensitive.
+    new_shape.transform = _identity()
+    # NiAVObject flags: createShapeFromData defaults to 0; the source (and CK)
+    # carry 14. Copy them so the shape isn't left with a wrong flag set.
+    new_shape.flags = src_shape.flags
     if src_shape.colors:
         new_shape.set_colors(list(src_shape.colors))
 
     # Skin: add all bones first (add_bone resets skin data), then s2b, weights.
+    # Bone names are canonicalized to the skeleton's casing (e.g. "HEAD"->"Head")
+    # so the skin actually binds in-game.
     new_shape.skin()
     if src_shape.has_global_to_skin:
         new_shape.set_global_to_skin(src_shape.global_to_skin)
     for bone in src_shape.bone_names:
-        new_shape.add_bone(bone)
+        new_shape.add_bone(_canon_bone(bone))
     for bone in src_shape.bone_names:
         new_shape.set_skin_to_bone_xform(
-            bone, src_shape.get_shape_skin_to_bone(bone))
+            _canon_bone(bone), src_shape.get_shape_skin_to_bone(bone))
     for bone, vw in src_shape.bone_weights.items():
-        new_shape.setShapeWeights(bone, vw)
+        new_shape.setShapeWeights(_canon_bone(bone), vw)
 
     # Shader: copy the ctypes property buffer wholesale. Resolve textures
     # BGSM-authoritatively and write them INLINE, then CLEAR the material name
@@ -104,6 +170,23 @@ def _copy_shape(dst: NifFile, fg, src_shape, resolver, face_textures=None,
     if src_sh._properties is not None:
         new_sh._properties = src_sh._properties.copy()
     new_sh.name = ""  # drop the BGSM material ref (match CK bake)
+    # Clear the Root Material too. The wholesale buffer copy carried the source
+    # nif's rootMaterialNameID as a raw string-table index; in our output nif
+    # that index resolves to a garbage string (e.g. 'Eyes'), and a bogus Root
+    # Material makes the FO4 shader inherit the wrong base material. CK leaves it
+    # empty.
+    new_sh.properties.rootMaterialNameID = 0xFFFFFFFF  # NODEID_NONE
+    # The wholesale property copy above carries every flag the source/BGSM
+    # shader has; the ONLY flag we add is SKINNED. FFO's source headpart meshes
+    # don't carry the SKINNED shader flag, but the baked facegeom shapes ARE
+    # skinned — the CK sets it during bake. Without it the engine's
+    # shadow/utility shader runs the NON-skinned vertex path over skinned vertex
+    # data and crashes d3d11 (rdx=0 null-deref) the moment the head is actually
+    # loaded (Addictol bFacegen). Every facegen head part is skinned, so set it
+    # unconditionally — there's no shape here where that would be wrong.
+    new_sh.properties.shaderflags1_set(ShaderFlags1FO4.SKINNED)
+    new_sh._properties.Shader_Type = _facegen_shader_type(
+        src_sh.materials, new_sh._properties.Shader_Type)
     is_greyscale = bool(getattr(src_sh, "flag_greyscale_color", False))
     if is_greyscale and hair_palette_scale is not None:
         new_sh.properties.grayscaleToPaletteScale = float(hair_palette_scale)
@@ -222,14 +305,13 @@ def build_facegen_nif(form_id: str, base_plugin: str, headparts: list,
         if base_specular:
             face_textures["Specular"] = base_specular
 
-    # Open each source nif once; collect shapes + bone bind-pose transforms.
-    # We keep the source bone node's FULL transform (rotation + translation),
-    # not just the translation: the source headpart nifs carry the real
-    # skeleton bind-pose rotation (≈ inverse of the shape's skin-to-bone), and
-    # baking it in makes the facegeom self-consistent — it renders upright on
-    # its own (3D preview, NifSkope) instead of relying on an external skeleton
-    # the way the CK's identity-rotation output does. In-game is unaffected (the
-    # engine binds skin to the skeleton by bone name regardless).
+    # Open each source nif once; collect shapes + bone bind-pose TRANSLATIONS.
+    # Match CK: bone-node rotation is IDENTITY (translation only). We previously
+    # baked the source's full bind-pose rotation in (to render upright without an
+    # external skeleton), but CK zeroes it and positions via the skin — and the
+    # divergent frame broke the face in-game, because FO4 face _msn maps are
+    # tangent-space and the tangent basis depends on this frame. With the shape
+    # transform now identity too, the head positions through the skin like CK's.
     sources = []
     bone_xforms: dict = {}
     for hp in headparts:
@@ -245,13 +327,13 @@ def build_facegen_nif(form_id: str, base_plugin: str, headparts: list,
         for src_shape in src_nif.shapes:
             sources.append((hp, src_shape))
             for bone in src_shape.bone_names:
-                if bone not in bone_xforms and bone in src_nif.nodes:
+                canon = _canon_bone(bone)
+                if canon not in bone_xforms and bone in src_nif.nodes:
                     src_xf = src_nif.nodes[bone].transform
                     xf = TransformBuf()
-                    xf.set_identity()
+                    xf.set_identity()  # identity rotation, matching CK
                     xf.translation = src_xf.translation
-                    xf.rotation = src_xf.rotation
-                    bone_xforms[bone] = xf
+                    bone_xforms[canon] = xf
 
     if not sources:
         log.warning("no head-part shapes resolved for %s", form_id)
@@ -262,7 +344,8 @@ def build_facegen_nif(form_id: str, base_plugin: str, headparts: list,
         dst_path.unlink()
     dst = NifFile()
     dst.initialize(_GAME, str(dst_path), root_type=_ROOT_TYPE,
-                   root_name=f"{form_id}.nif")
+                   root_name="")  # CK leaves the BSFadeNode root name empty
+    dst.root.name = ""
     dst.root.flags = _ROOT_FLAGS
 
     # Bones first (so the shapes that reference them parse), then the facegen
@@ -294,7 +377,8 @@ def build_facegen_nif(form_id: str, base_plugin: str, headparts: list,
                                          resolver)
         _copy_shape(dst, fg, src_shape, resolver, face_textures=ft,
                     texture_overrides=hp.get("textures"),
-                    hair_palette_scale=hair_palette_scale, verts=verts)
+                    hair_palette_scale=hair_palette_scale, verts=verts,
+                    rename_to=hp.get("hdpt_edid"))
 
     dst.save()
     log.debug("wrote facegeom %s (%d bytes)", dst_path,
