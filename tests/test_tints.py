@@ -100,6 +100,24 @@ def test_exact_layer_name_applies_just_that_layer():
     assert [i for i in ov.teti_indices() if i in (1, 2, 3)] == [2]
 
 
+def test_duplicate_layer_written_once():
+    """Two scheme keys that resolve to the SAME layer index — a direct key plus
+    a category that also matches it (Reindeer's `Muzzle_Upper` + `Muzzle_Stripe`,
+    which lists "Muzzle Upper") — must write that layer only once."""
+    rt = _tints({
+        'face mask 1': [_opt(1, 'Face Mask 1')],
+        'skin tone': [_opt(9, 'Skin tone', alpha=0.0)],
+    })
+    cats = {'skin tone': ['Skin tone'], 'mask': ['Face Mask 1']}
+    # Both land on index 1: the exact name, and the single-member category.
+    scheme = {'Face Mask 1': ColorRule(probability=1.0),
+              'Mask': ColorRule(probability=1.0)}
+    ov = _Ov()
+    apply_tints(None, ov, 'Fox', Sex.MALE, 'sig', rt,
+                color_scheme=scheme, categories=cats)
+    assert ov.teti_indices().count(1) == 1, ov.teti_indices()
+
+
 def test_probability_zero_skips_category():
     rt = _fox()
     scheme = {'Mask': ColorRule(probability=0.0)}

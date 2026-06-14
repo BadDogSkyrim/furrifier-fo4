@@ -218,6 +218,12 @@ def apply_tints(patch, ov: Record, race_edid: str, sex: Sex,
         else None
 
     written = 0
+    # Layer indices already written. Two scheme keys can resolve to the same
+    # layer — e.g. a direct `Muzzle_Upper` key AND the `Muzzle_Stripe` category
+    # (which lists "Muzzle Upper" among its members) both landing on it — and
+    # _write_layer just appends, so without this the NPC gets the layer twice.
+    # Dedup by layer index, first key in scheme order wins.
+    seen: set = set()
 
     # Skin tone: always attempted first, seeds QNAM.
     skin_rule = scheme.get(SKIN_TONE_KEY) if scheme else None
@@ -229,6 +235,7 @@ def apply_tints(patch, ov: Record, race_edid: str, sex: Sex,
             option, color = picked
             _write_layer(ov, option, color, race_tints)
             _set_qnam(ov, race_tints.rgb(color[0]), color[1])
+            seen.add(option.index)
             written += 1
 
     # Everything else, in order. Scheme keys win; else the file's categories.
@@ -246,7 +253,10 @@ def apply_tints(patch, ov: Record, race_edid: str, sex: Sex,
         if picked is None:
             continue
         option, color = picked
+        if option.index in seen:
+            continue  # already written by an earlier key (e.g. Muzzle_Upper)
         _write_layer(ov, option, color, race_tints)
+        seen.add(option.index)
         written += 1
 
     return written
