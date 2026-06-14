@@ -94,6 +94,16 @@ def _face_normals(verts: np.ndarray, tris: np.ndarray) -> np.ndarray:
 # ---- shape loading ---------------------------------------------------------
 
 
+# FO4 skeleton Head-bone bind-pose world rotation — constant across NPCs (a ~90°
+# tilt that stands the head upright). The baked facegeom's bone nodes carry
+# IDENTITY rotation (CK convention: the engine orients the head via the real
+# skeleton at runtime). The preview has no skeleton, so when a bone's rotation is
+# identity we substitute this — otherwise the head renders lying on its side.
+_FO4_HEAD_BIND_ROT = np.array([[0.0, 0.0, -1.0],
+                               [0.065, 0.9979, 0.0],
+                               [0.9979, -0.065, 0.0]], dtype=np.float32)
+
+
 def _rigid_preview_xform(shape, nif):
     """Approximate linear-blend skinning with the dominant bone's rigid
     transform so skinned shapes (eyes, hair) land in the head's frame.
@@ -113,6 +123,10 @@ def _rigid_preview_xform(shape, nif):
     s2b = shape.get_shape_skin_to_bone(dominant)
     bone_trans = np.array(list(bone_xf.translation), dtype=np.float32)
     bone_rot = np.array([list(r) for r in bone_xf.rotation], dtype=np.float32)
+    if np.allclose(bone_rot, np.eye(3, dtype=np.float32), atol=1e-3):
+        # Identity-rotation facegeom bone (CK convention) -> no skeleton in the
+        # preview to orient it; stand the head up with the constant bind pose.
+        bone_rot = _FO4_HEAD_BIND_ROT
     s2b_trans = np.array(list(s2b.translation), dtype=np.float32)
     s2b_rot = np.array([list(r) for r in s2b.rotation], dtype=np.float32)
     return bone_rot @ s2b_rot, bone_rot @ s2b_trans + bone_trans
