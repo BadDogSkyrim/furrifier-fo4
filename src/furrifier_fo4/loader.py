@@ -150,6 +150,20 @@ def _validate(scheme: Scheme) -> None:
                 f"(got {dist.total_weight})")
 
 
+def scheme_source_paths(scheme_name: str) -> list[Path]:
+    """The TOML files `load_scheme` reads for `scheme_name`: builtin.toml and
+    schemes/<name>.toml. Used to detect edits for cache invalidation (the scheme
+    file paths it returns may not exist yet — the caller stats them)."""
+    paths: list[Path] = []
+    builtin = _find_resource_dir('builtin.toml')
+    if builtin is not None:
+        paths.append(builtin)
+    schemes_dir = _find_resource_dir('schemes')
+    if schemes_dir is not None:
+        paths.append(schemes_dir / f"{scheme_name}.toml")
+    return paths
+
+
 def list_available_schemes() -> list[str]:
     """Stem names of scheme TOMLs in the shipped schemes/ dir (lowercased)."""
     d = _find_resource_dir('schemes')

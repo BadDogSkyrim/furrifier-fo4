@@ -181,9 +181,37 @@ class FurryWorld:
             self.resolver = None
 
 
-def _world_key(scheme: str, data_dir: Optional[str], plugins: Optional[list]):
+def _resource_paths(scheme_name: str, races_dir: Optional[str] = None) -> list:
+    """The on-disk catalog files a world is built from: the scheme's TOMLs
+    (builtin.toml + schemes/<name>.toml) and every races/*.toml. Editing any of
+    these should rebuild the world."""
+    from .loader import scheme_source_paths
+    paths = list(scheme_source_paths(scheme_name))
+    rdir = Path(races_dir) if races_dir else default_races_dir()
+    if rdir.is_dir():
+        paths.extend(sorted(rdir.glob('*.toml')))
+    return paths
+
+
+def _resource_fingerprint(scheme_name: str,
+                          races_dir: Optional[str] = None) -> tuple:
+    """A hashable (path, mtime_ns) signature of the scheme + race catalog files,
+    so the WorldCache rebuilds when one is edited, added, or removed. A missing
+    file contributes (path, None)."""
+    out = []
+    for p in _resource_paths(scheme_name, races_dir):
+        try:
+            out.append((str(p), p.stat().st_mtime_ns))
+        except OSError:
+            out.append((str(p), None))
+    return tuple(out)
+
+
+def _world_key(scheme: str, data_dir: Optional[str], plugins: Optional[list],
+               fingerprint: Optional[tuple] = None):
     return (scheme, data_dir or "",
-            tuple(p.lower() for p in plugins) if plugins else None)
+            tuple(p.lower() for p in plugins) if plugins else None,
+            fingerprint)
 
 
 class WorldCache:
@@ -200,7 +228,12 @@ class WorldCache:
 
     def get_or_build(self, scheme: str, data_dir: Optional[str],
                      plugins: Optional[list], progress=None) -> FurryWorld:
-        key = _world_key(scheme, data_dir, plugins)
+        # Fold the scheme + race catalog file mtimes into the key so editing a
+        # scheme/races TOML rebuilds the world instead of serving a stale one.
+        # (Plugin edits aren't tracked here — a CK re-save still needs a manual
+        # rebuild; the dev pain this targets is iterating on the TOML catalogs.)
+        key = _world_key(scheme, data_dir, plugins,
+                         _resource_fingerprint(scheme))
         with self._lock:
             if self._world is not None and self._key == key:
                 return self._world
