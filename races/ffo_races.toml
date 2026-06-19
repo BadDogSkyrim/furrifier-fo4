@@ -311,13 +311,13 @@ race = "FFOFoxRace"
 child_race = "FFOFoxChildRace"
 breeds = [["FennecBreed", 0.05]]
 
-[[color_schemes.FFOFoxRace]]
+[[color_schemes.RedFox]]
 Skin_tone = [["FFOFurOrange02", 0.9], ["FFOFurOrange02", 0.7], ["FFOFurOrange03", 0.9], ["FFOFurOrange03", 0.7], ["FFOFurOrange04", 0.9], ["FFOFurOrange04", 0.7], ["FFOFurOrange05", 0.9], ]
 Mask = [["FFOFurWhite", 0.9]]
 Muzzle_Stripe = [["FFOFurBlack", 0.9], ["FFOFurBlack", 0.7], ["FFOFurBlack", 0.5], ]
 Ears = [["probability", 1.0]]
 
-[[facemorphs.FFOFoxRace]]
+[[facemorphs.RedFox]]
 sex = "female"
 "Nose - Full" = { "Small Nose Tip" = 0.25 }
 
@@ -375,7 +375,7 @@ Skin_tone = [
     ["FFOFurTanD", 0.9], ["FFOFurTan", 0.9], ["FFOFurGingerL", 0.9], ["FFOFurTan01", 0.9], 
     ["FFOFurTan01", 0.9], ["FFOFurTan01", 0.9]]
 Nose = [["probability", 1.0]]
-Muzzle = [["probability", 0.5], ["FFOFurWhite", 0.3], ["FFOFurWhite", 0.2], ["FFOFurWhite", 0.1], ]
+Muzzle = [["probability", 0.5], ["FFOFurWhite", 0.15], ["FFOFurWhite", 0.2], ["FFOFurWhite", 0.1], ]
 
 [[race_customization]]
 race = "FFOLionRace"
