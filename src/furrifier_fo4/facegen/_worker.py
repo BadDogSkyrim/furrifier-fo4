@@ -101,7 +101,9 @@ def bake_from_info(info: Dict[str, Any], resolver) -> _Result:
                                    hair_palette_scale=info["hair_palette_scale"],
                                    base_normal=base.get("normal"),
                                    base_specular=base.get("specular"),
-                                   aux_textures=info["bake_aux"])
+                                   aux_textures=info["bake_aux"],
+                                   bone_scale=info.get("bone_scale", 1.0),
+                                   skin_tone=info.get("skin_tone"))
             nif = 1 if ok else 0
             nif_failed = 0 if ok else 1
         except Exception as exc:
@@ -158,15 +160,23 @@ def _close_resolver() -> None:
 
 def _worker_init(data_dir_str: str, throttle: bool,
                  log_queue: Optional[Any] = None,
-                 log_level: int = logging.INFO) -> None:
+                 log_level: int = logging.INFO,
+                 fallback_dir_str: Optional[str] = None) -> None:
     """Per-worker initializer (run once per process by ProcessPoolExecutor):
-    set priority, wire logging, open BA2s once into a long-lived resolver."""
+    set priority, wire logging, open BA2s once into a long-lived resolver.
+
+    `fallback_dir_str` mirrors the parent's --resources fallback: the worker
+    resolves assets under data_dir first, then the real game Data — without it
+    a --resources override (e.g. test fixtures) only carrying some assets would
+    fail to resolve the rest and silently skip the bake."""
     global _resolver
     if throttle:
         _set_below_normal_priority()
     if log_queue is not None:
         _install_queue_logging(log_queue, log_level)
-    _resolver = AssetResolver.for_data_dir(Path(data_dir_str))
+    _resolver = AssetResolver.for_data_dir(
+        Path(data_dir_str),
+        Path(fallback_dir_str) if fallback_dir_str else None)
     atexit.register(_close_resolver)
 
 

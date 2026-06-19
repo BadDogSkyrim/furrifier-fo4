@@ -186,6 +186,16 @@ def test_face_flag_preserved_on_head(built):
     assert _f1(head) & ShaderFlags1FO4.FACE, "FACE dropped on head"
 
 
+def test_head_output_shader_type_is_face(built):
+    """The head shape must bake as Face Tint (4), not Default (0). FFO's
+    FoxFemaleHead BGSM sets the `facegen` flag (not skinTint), which
+    _facegen_shader_type maps to Face Tint; a Default head renders with no
+    skin/subsurface shading in-game (the Rosalind regression)."""
+    head = built["shapes"]["FFOTestHead"]
+    head.shader.properties
+    assert head.shader._properties.Shader_Type == 4  # Face Tint
+
+
 def test_material_name_cleared(built):
     for name, s in built["shapes"].items():
         assert s.shader.name == "", f"{name} kept material ref {s.shader.name!r}"
@@ -239,21 +249,132 @@ def test_facegen_shader_type_from_material():
     def mat(**kw):
         kw.setdefault("glowmap", False)
         kw.setdefault("skinTint", False)
+        kw.setdefault("facegen", False)
         return SimpleNamespace(**kw)
 
     # glowmap -> Glow(2), regardless of the source type (THE crash fix: hair)
     assert f(mat(glowmap=True), 0) == 2   # FFO hair authored Default -> Glow
     assert f(mat(glowmap=True), 2) == 2   # neck gore already Glow -> stays
-    # non-skin-tinted Face/Skin-Tint -> Default (FFO horns authored Face_Tint)
-    assert f(mat(skinTint=False), 4) == 0  # horns Face_Tint -> Default
-    # skin-tinted keeps its tint type (head=Face_Tint, horn base=Skin_Tint)
-    assert f(mat(skinTint=True), 4) == 4   # head stays Face_Tint
+    # facegen -> Face Tint(4): the head BGSM sets `facegen` (not skinTint); that
+    # flag means Face Tint and drives the type even from a Default source. This is
+    # the FoxFemaleHead/Rosalind fix — without it the head baked as Default(0).
+    assert f(mat(facegen=True), 4) == 4   # head: source already Face -> stays
+    assert f(mat(facegen=True), 0) == 4   # facegen promotes a Default source
+    # non-tinted Face/Skin-Tint source -> Default (FFO horns authored Face_Tint)
+    assert f(mat(), 4) == 0                # horns Face_Tint, no flags -> Default
+    # skin-tinted keeps its tint type (e.g. furry horn base = Skin_Tint)
     assert f(mat(skinTint=True), 5) == 5   # horn base stays Skin_Tint
     # untouched types pass through (eyes EnvMap=1, mouth Default=0)
     assert f(mat(), 1) == 1
     assert f(mat(), 0) == 0
     # no material -> unchanged
     assert f(None, 4) == 4
+
+
+def test_apply_material_shading_skips_missing_fields():
+    """Specular/backlight come from the BGSM material — but an effect (BGEM)
+    material (e.g. on some NPCs' hair) lacks those fields. The copy must skip
+    them, not throw (a throw failed the whole NPC bake — 18 nifs in single_race)."""
+    from furrifier_fo4.facegen.assemble import _apply_material_shading
+    from types import SimpleNamespace
+
+    class Props:
+        def __init__(self):
+            self.Spec_Color = [0.0, 0.0, 0.0]
+            self.Spec_Str = 0.0
+            self.backlightPower = 0.0
+
+    p = Props()  # full BGSM-like material
+    _apply_material_shading(p, SimpleNamespace(
+        specularColor=[1.0, 1.0, 1.0], specularMult=3.0, backlightPower=2.0))
+    assert p.Spec_Color == [1.0, 1.0, 1.0]
+    assert p.Spec_Str == 3.0 and p.backlightPower == 2.0
+
+    p = Props()  # effect material missing the BGSM fields -> no throw, unchanged
+    _apply_material_shading(p, SimpleNamespace(glowmap=True))
+    assert p.Spec_Color == [0.0, 0.0, 0.0]
+    assert p.Spec_Str == 0.0 and p.backlightPower == 0.0
+
+
+def test_face_flag_stripped_from_non_face_part(tmp_path):
+    """FFO authors some non-face parts with the FACE shader flag (the deer horns,
+    FFODeerHorns01 / FFOHornBase01); the wholesale shader copy carries it. The
+    bake must STRIP FACE from non-Face parts (the CK does) or the engine runs
+    facegen face/tint shading on the antlers' plain normal map -> black streaks.
+    The actual Face head part must KEEP it."""
+    head_rel = "meshes\\ffo\\test\\fhead.nif"
+    horn_rel = "meshes\\ffo\\test\\fhorn.nif"
+    _make_source(_loose(tmp_path, head_rel), [dict(
+        name="TheHead", verts=[(0, 0, 0), (1, 0, 0), (1, 1, 0)], tris=[(0, 1, 2)],
+        shader_type=4, flags=[ShaderFlags1FO4.FACE], s2b=_xf())])
+    _make_source(_loose(tmp_path, horn_rel), [dict(
+        name="TheHorn", verts=[(0, 0, 0), (1, 0, 0), (1, 1, 0)], tris=[(0, 1, 2)],
+        shader_type=0, flags=[ShaderFlags1FO4.FACE], s2b=_xf())])  # FACE mis-set
+    out = tmp_path / "outface.nif"
+    headparts = [
+        {"source_nif": head_rel, "hdpt_type": HDPT_FACE, "hdpt_edid": "TheHead"},
+        {"source_nif": horn_rel, "hdpt_type": 0, "hdpt_edid": "TheHorn"},
+    ]
+    with AssetResolver(tmp_path, bsa_readers=[]) as resolver:
+        assert build_facegen_nif("0000CAFE", "T.esp", headparts, resolver, out)
+    shapes = {s.name: s for s in NifFile(str(out)).shapes}
+    assert _f1(shapes["TheHead"]) & ShaderFlags1FO4.FACE, "FACE dropped from head"
+    assert not (_f1(shapes["TheHorn"]) & ShaderFlags1FO4.FACE), \
+        "FACE not stripped from non-face (horn) part"
+
+
+def test_cloth_data_moved_to_hair_shape(tmp_path):
+    """FO4 cloth-physics hair: the source nif carries a BSClothExtraData on its
+    ROOT; the bake must re-attach it to the baked hair TriShape (matching CK).
+    Without it the cloth bones have no simulation and the hair stretches to
+    infinity/origin in-game (the Rosalind regression)."""
+    from ctypes import c_int, c_char, byref
+    from pyn.niflydll import nifly
+
+    def read_cloth(nif, target):
+        out, nl, vl = [], c_int(), c_int()
+        for i in range(100):
+            if not nifly.getClothExtraDataLen(nif._handle, target, i,
+                                              byref(nl), byref(vl)):
+                break
+            name = (c_char * (nl.value + 1))()
+            val = (c_char * (vl.value + 1))()
+            nifly.getClothExtraData(nif._handle, target, i, name, nl.value + 1,
+                                    val, vl.value + 1)
+            out.append((name.value.decode("utf-8"), val.raw))
+        return out
+
+    hair_rel = "meshes\\ffo\\test\\clothhair.nif"
+    hair_path = _loose(tmp_path, hair_rel)
+    nif = NifFile()
+    nif.initialize("FO4", str(hair_path), root_type="NiNode", root_name="scene")
+    nif.add_node("Hair_C_Cloth00", _xf(translation=(0.0, 0.0, 120.0)),
+                 parent=nif.root)
+    shp = nif.createShapeFromData(
+        "ClothHair", [(0, 0, 0), (1, 0, 0), (1, 1, 0)], [(0, 1, 2)],
+        [(0.0, 0.0)] * 3, [(0.0, 0.0, 1.0)] * 3, use_type=_SITS)
+    shp.skin()
+    shp.add_bone("Hair_C_Cloth00")
+    shp.set_skin_to_bone_xform("Hair_C_Cloth00", _xf())
+    shp.setShapeWeights("Hair_C_Cloth00", [(i, 1.0) for i in range(3)])
+    shp.shader.name = ""
+    shp.save_shader_attributes()
+    cloth = b"NVCLOTHTESTDATA" + bytes(range(48))
+    nif.cloth_data = [("Binary Data", cloth + b"\x00")]  # root, per FFO source
+    nif.save()
+
+    out = tmp_path / "outcloth.nif"
+    headparts = [{"source_nif": hair_rel, "hdpt_type": 0}]
+    with AssetResolver(tmp_path, bsa_readers=[]) as resolver:
+        assert build_facegen_nif("0000BEEF", "T.esp", headparts, resolver, out)
+
+    res = NifFile(str(out))
+    shape = res.shapes[0]
+    on_shape = read_cloth(res, shape._handle)
+    on_root = read_cloth(res, None)
+    assert len(on_shape) == 1, "cloth block not attached to the hair shape"
+    assert on_shape[0][1].startswith(b"NVCLOTHTESTDATA"), "cloth payload wrong"
+    assert len(on_root) == 0, "cloth wrongly left on the root (CK moves it)"
 
 
 def test_shape_renamed_to_hdpt_edid(tmp_path):

@@ -8,7 +8,7 @@ exclude_headparts = [
   "DLC03_HairFemale37", "FFO_DLC03_HairFemale37*", # Beta rays
   "DLC03_HairMale46", "FFO_DLC03_HairMale46_*", # Gamma dream
   "DLC03_HairMale47", "FFO_DLC03_HairMale47_*", # Chemical storm
-  "HairFemale33", "FFO_HairFemale33_", "HairMale44", "FFO_HairMale44_*", # Megaton
+  "HairFemale33", "FFO_HairFemale33_*", "HairMale44", "FFO_HairMale44_*", # Megaton
   "HairFemale34", "FFO_HairFemale34_*", # Hornet's nest
 ]
 
@@ -205,4 +205,5 @@ races = [
 "DLC04Gage" = "FFOHyenaRace"
 "PrestonGarvey" = "FFOLionRace"
 "DLC03_CompanionOldLongfellow" = "FFOOtterRace"
+"Polly" = "FFOHyenaRace"
 

@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import Qt, QObject, QThread, Signal
-from PySide6.QtGui import QGuiApplication, QIntValidator
+from PySide6.QtGui import QGuiApplication, QIcon, QIntValidator
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QFrame,
     QHBoxLayout, QLabel, QLineEdit, QMainWindow, QPlainTextEdit, QProgressBar,
@@ -554,6 +554,9 @@ def main() -> int:
     import multiprocessing
     multiprocessing.freeze_support()
     app = QApplication.instance() or QApplication(sys.argv)
+    icon_path = _asset_path("green_wolf.png")
+    if icon_path.exists():
+        app.setWindowIcon(QIcon(str(icon_path)))
     check_url = _asset_path("check.svg").resolve().as_posix()
     app.setStyleSheet(_APP_STYLESHEET.replace("{check_icon}", check_url))
     win = FurrifierWindow()

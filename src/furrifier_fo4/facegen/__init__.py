@@ -31,7 +31,19 @@ import struct
 from pathlib import Path
 from typing import Optional
 
+from esplib import race_height
+
 from ..extract import FactExtractor
+
+
+def _npc_skin_tone(npc):
+    """The NPC's skin-tone RGBA (0-1) from its QNAM subrecord (the furrifier
+    writes the skin tone there while tinting). None if absent. CK bakes this
+    into a Skin-Tint shape's skinTintColor — e.g. the furry deer horn base."""
+    q = npc.get_subrecord("QNAM")
+    if q is None or q.size < 16:
+        return None
+    return struct.unpack("<ffff", q.data[:16])
 from ..headparts import HeadpartPools
 from ..models import Sex
 from .assets import AssetResolver
@@ -119,6 +131,7 @@ def _facebone_deltas(npc, race_edid, sex, bone_regions) -> dict:
 
 
 def build_facegen_for_patch(patch, plugin_set, data_dir,
+                            fallback_dir: Optional[str] = None,
                             output_dir: Optional[str] = None,
                             limit: Optional[int] = None,
                             output_size: Optional[int] = None,
@@ -226,7 +239,8 @@ def build_facegen_for_patch(patch, plugin_set, data_dir,
 
     own_resolver = resolver is None
     if own_resolver:
-        resolver = AssetResolver.for_data_dir(Path(data_dir))
+        resolver = AssetResolver.for_data_dir(
+            Path(data_dir), Path(fallback_dir) if fallback_dir else None)
     if base_heads is None:
         base_heads = BaseHeadTextures(pools, resolver,
                                       races_by_edid=races_by_edid)
@@ -258,6 +272,14 @@ def build_facegen_for_patch(patch, plugin_set, data_dir,
             "out_dir": str(out_dir_for(plugin)), "output_size": output_size,
             "make_png": make_png, "bake_aux": bake_aux, "bake_nif": bake_nif,
             "headparts": None, "nif_path": None, "hair_palette_scale": None,
+            # Race per-sex height: the CK scales the baked facegen skeleton by it.
+            # Needed so nif-local cloth-hair bones land in the actor frame (see
+            # assemble.build_facegen_nif). 1.0 when the race omits a height.
+            "bone_scale": race_height(races_by_edid.get(race_edid),
+                                      sex == Sex.FEMALE),
+            # NPC skin-tone RGBA (0-1) from QNAM — CK bakes it into a Skin-Tint
+            # shape's skinTintColor (the furry horn base). None if no QNAM.
+            "skin_tone": _npc_skin_tone(npc),
         }
         if bake_nif:
             headparts = resolve_headparts(
@@ -335,6 +357,7 @@ def build_facegen_for_patch(patch, plugin_set, data_dir,
                      len(work), n_workers, " (throttled)" if throttle else "")
             _bake_pooled([_WorkItem(i["edid"], i) for i in work],
                          n_workers, throttle, str(data_dir), stats,
+                         fallback_dir=fallback_dir,
                          progress=progress, cancel_event=cancel_event)
     finally:
         if own_resolver:
@@ -356,7 +379,8 @@ def _accumulate(stats: dict, r) -> None:
 
 
 def _bake_pooled(items, n_workers: int, throttle: bool, data_dir: str,
-                 stats: dict, progress=None, cancel_event=None) -> None:
+                 stats: dict, fallback_dir: Optional[str] = None,
+                 progress=None, cancel_event=None) -> None:
     """Bake `items` across `n_workers` spawned processes, forwarding worker logs
     to the parent's handlers (file / stream / GUI pane) via a QueueListener so
     progress is visible everywhere the serial path's logs were.
@@ -381,7 +405,8 @@ def _bake_pooled(items, n_workers: int, throttle: bool, data_dir: str,
         with ProcessPoolExecutor(
                 max_workers=n_workers, mp_context=ctx,
                 initializer=_worker_init,
-                initargs=(data_dir, throttle, log_queue, level)) as ex:
+                initargs=(data_dir, throttle, log_queue, level,
+                          fallback_dir)) as ex:
             try:
                 for i, r in enumerate(ex.map(_bake_one, items, chunksize=1)):
                     _accumulate(stats, r)

@@ -36,9 +36,10 @@ from .facebones import (load_facebones_shape, facebone_displacements,
 
 ensure_dev_path()
 from pyn.pynifly import NifFile  # noqa: E402
+from pyn.niflydll import nifly  # noqa: E402
 from pyn.structs import TransformBuf  # noqa: E402
 from pyn.nifdefs import PynBufferTypes  # noqa: E402
-from pyn.nifconstants import ShaderFlags1FO4  # noqa: E402
+from pyn.nifconstants import ShaderFlags1FO4, ShaderFlags2FO4  # noqa: E402
 
 log = logging.getLogger(__name__)
 
@@ -85,18 +86,41 @@ _SHADER_FACE_TINT = 4
 _SHADER_SKIN_TINT = 5
 
 
+def _apply_material_shading(props, mat) -> None:
+    """Copy specular colour/strength + backlight power from the BGSM material
+    onto the shader properties (CK bakes these from the material; FFO leaves the
+    nif's inline block zeroed). getattr-guarded: an effect (BGEM) material — seen
+    on some NPCs' hair — lacks these BGSM fields, so skip them rather than throw,
+    which would fail the whole bake for that NPC. A shape with no specular keeps
+    its copied value (0)."""
+    sc = getattr(mat, "specularColor", None)
+    if sc is not None:
+        for i in range(3):
+            props.Spec_Color[i] = sc[i]
+    sm = getattr(mat, "specularMult", None)
+    if sm is not None:
+        props.Spec_Str = sm
+    bp = getattr(mat, "backlightPower", None)
+    if bp is not None:
+        props.backlightPower = bp
+
+
 def _facegen_shader_type(material, current_type: int) -> int:
     """The facegen shader type CK assigns, derived from the BGSM material.
 
-    CK derives the type from the material (baked inline), not the source nif's
-    shader block — and FFO source nifs sometimes author it wrong. Two confirmed
-    corrections:
+    CK derives the type from the material's flags (baked inline), not the source
+    nif's shader block — and FFO source nifs sometimes author it wrong. Rules, in
+    priority order:
 
-    - `glowmap` material -> Glow. A glowmap hair left as Default makes the FO4
-      renderer build a corrupt texture command buffer and access-violate in
-      crowds (Diamond City). This is the load-bearing fix.
-    - A Face/Skin-Tint type on a NON-skin-tinted material -> Default (e.g. FFO
-      horns authored as Face_Tint), matching CK.
+    - `glowmap` -> Glow. A glowmap hair left as Default makes the FO4 renderer
+      build a corrupt texture command buffer and access-violate in crowds
+      (Diamond City). This is the load-bearing fix.
+    - `facegen` -> Face Tint. The face/head BGSM sets the `facegen` flag (NOT
+      `skinTint`) — that flag *is* "Face Tint", so it drives the type even when
+      the source nif authored Default. Without it the furry head baked as Default
+      (no skin/subsurface shading) and rendered wrong in-game (FoxFemaleHead).
+    - A Face/Skin-Tint source type on a material that's neither facegen nor
+      skinTint -> Default (e.g. FFO horns mis-authored as Face_Tint).
 
     `material` is None for shapes with no resolvable BGSM; then the type is left
     unchanged.
@@ -105,6 +129,8 @@ def _facegen_shader_type(material, current_type: int) -> int:
         return current_type
     if getattr(material, "glowmap", False):
         return _SHADER_GLOW
+    if getattr(material, "facegen", False):
+        return _SHADER_FACE_TINT
     if (not getattr(material, "skinTint", False)
             and current_type in (_SHADER_FACE_TINT, _SHADER_SKIN_TINT)):
         return _SHADER_DEFAULT
@@ -113,7 +139,8 @@ def _facegen_shader_type(material, current_type: int) -> int:
 
 def _copy_shape(dst: NifFile, fg, src_shape, resolver, face_textures=None,
                 texture_overrides=None, hair_palette_scale=None,
-                verts=None, rename_to=None) -> None:
+                verts=None, rename_to=None, bone_xforms=None,
+                skin_tone=None) -> None:
     """Copy one source head-part shape into `dst` under `fg`, verbatim.
 
     `verts` overrides the source vertices (used to bake the head's chargen face
@@ -149,47 +176,85 @@ def _copy_shape(dst: NifFile, fg, src_shape, resolver, face_textures=None,
     # Skin: add all bones first (add_bone resets skin data), then s2b, weights.
     # Bone names are canonicalized to the skeleton's casing (e.g. "HEAD"->"Head")
     # so the skin actually binds in-game.
+    #
+    # Give each bone its NODE bind transform from `bone_xforms` (built once in
+    # build_facegen_nif: identity rotation + height-scaled source translation,
+    # matching CK). add_bone defaults to IDENTITY, which collapses any bone the
+    # actor skeleton doesn't supply — i.e. nif-local cloth-physics hair bones —
+    # since `identity @ skin_to_bone(inverse-bind)` yanks their verts to the
+    # origin / out to infinity. See the bone_xforms comment for the height scale.
     new_shape.skin()
     if src_shape.has_global_to_skin:
         new_shape.set_global_to_skin(src_shape.global_to_skin)
     for bone in src_shape.bone_names:
-        new_shape.add_bone(_canon_bone(bone))
+        canon = _canon_bone(bone)
+        bind = bone_xforms.get(canon) if bone_xforms else None
+        new_shape.add_bone(canon, bind)
     for bone in src_shape.bone_names:
         new_shape.set_skin_to_bone_xform(
             _canon_bone(bone), src_shape.get_shape_skin_to_bone(bone))
     for bone, vw in src_shape.bone_weights.items():
         new_shape.setShapeWeights(_canon_bone(bone), vw)
 
-    # Shader: copy the ctypes property buffer wholesale. Resolve textures
-    # BGSM-authoritatively and write them INLINE, then CLEAR the material name
-    # — the CK does exactly this (a lingering material ref would override the
-    # inline FaceCustomization textures we point the head at).
+    # --- Shader: rebuild from the source block + BGSM material, keyed on the
+    # facegen shader TYPE (the plan's "derive by rule, not copy-and-patch").
+    # We copy the source's inline shader buffer, apply the UNIVERSAL facegen
+    # fixups (drop refs, force SKINNED, bake material shading, TRANSFORM_CHANGED),
+    # then dispatch on the FINAL shader type for the type-specific handling. ---
     src_sh = src_shape.shader
     src_sh.properties  # lazy-load
     new_sh = new_shape.shader
     if src_sh._properties is not None:
         new_sh._properties = src_sh._properties.copy()
-    new_sh.name = ""  # drop the BGSM material ref (match CK bake)
-    # Clear the Root Material too. The wholesale buffer copy carried the source
-    # nif's rootMaterialNameID as a raw string-table index; in our output nif
-    # that index resolves to a garbage string (e.g. 'Eyes'), and a bogus Root
-    # Material makes the FO4 shader inherit the wrong base material. CK leaves it
-    # empty.
-    new_sh.properties.rootMaterialNameID = 0xFFFFFFFF  # NODEID_NONE
-    # The wholesale property copy above carries every flag the source/BGSM
-    # shader has; the ONLY flag we add is SKINNED. FFO's source headpart meshes
-    # don't carry the SKINNED shader flag, but the baked facegeom shapes ARE
-    # skinned — the CK sets it during bake. Without it the engine's
-    # shadow/utility shader runs the NON-skinned vertex path over skinned vertex
-    # data and crashes d3d11 (rdx=0 null-deref) the moment the head is actually
-    # loaded (Addictol bFacegen). Every facegen head part is skinned, so set it
-    # unconditionally — there's no shape here where that would be wrong.
+    p = new_sh._properties
+
+    # Universal:
+    # - name "": drop the BGSM material ref (CK inlines the textures instead; a
+    #   lingering ref would override the inline FaceCustomization textures).
+    # - rootMaterialNameID NONE: the copied index resolves to a garbage string in
+    #   our output; NONE => no RootMaterialPath (CK's string-index-0 means the
+    #   same empty — the golden test compares the resolved path, not the index).
+    # - SKINNED: FFO source heads omit it, but baked facegeom shapes ARE skinned;
+    #   without it the engine's shadow/utility shader runs the non-skinned vertex
+    #   path over skinned data and access-violates d3d11 (Addictol bFacegen CTD).
+    # - specular + backlight from the BGSM material: CK bakes these from the
+    #   material; FFO leaves the nif's inline block zeroed (no spec/backlight).
+    # - TRANSFORM_CHANGED (F2 0x80): CK sets it on every baked shape.
+    new_sh.name = ""
+    p.rootMaterialNameID = 0xFFFFFFFF  # NODEID_NONE
     new_sh.properties.shaderflags1_set(ShaderFlags1FO4.SKINNED)
-    new_sh._properties.Shader_Type = _facegen_shader_type(
-        src_sh.materials, new_sh._properties.Shader_Type)
+    if src_sh.materials is not None:
+        _apply_material_shading(p, src_sh.materials)
+    p.Shader_Flags_2 |= int(ShaderFlags2FO4.TRANSFORM_CHANGED)
+
+    # Final shader type from the material (fixes FFO's mis-authored source types).
+    shader_type = _facegen_shader_type(src_sh.materials, p.Shader_Type)
+    p.Shader_Type = shader_type
+
+    # Type-specific handling:
+    #   Face Tint  -> FACE flag (facegen detail-map / tint shading). The face is
+    #                 the only part that gets it; FFO mis-authors it on the deer
+    #                 horns, where face shading on a plain normal map = black
+    #                 streaks, so every non-Face-Tint shape must have it cleared.
+    #   Skin Tint  -> skinTintColor from the NPC's skin tone (QNAM); CK bakes the
+    #                 same RGBA (the furry horn base — white otherwise).
+    #   Glow / Default / Environment Map -> no extra flags (the type + the source
+    #                 block already carry what they need; eyes keep the modder's
+    #                 env-map setup verbatim).
+    if shader_type == _SHADER_FACE_TINT:
+        new_sh.properties.shaderflags1_set(ShaderFlags1FO4.FACE)
+    else:
+        new_sh.properties.shaderflags1_clear(ShaderFlags1FO4.FACE)
+    if shader_type == _SHADER_SKIN_TINT and skin_tone:
+        for i in range(3):
+            p.skinTintColor[i] = skin_tone[i]
+        p.Skin_Tint_Alpha = skin_tone[3]
+
+    # Greyscale-to-palette hair colour (the NPC's hair-colour position). Used
+    # again below to restore the hair gradient in the Greyscale texture slot.
     is_greyscale = bool(getattr(src_sh, "flag_greyscale_color", False))
     if is_greyscale and hair_palette_scale is not None:
-        new_sh.properties.grayscaleToPaletteScale = float(hair_palette_scale)
+        p.grayscaleToPaletteScale = float(hair_palette_scale)
     new_shape.save_shader_attributes()
     textures = dict(resolve_shape_textures(src_shape, resolver))
     if texture_overrides:
@@ -238,6 +303,20 @@ def _copy_shape(dst: NifFile, fg, src_shape, resolver, face_textures=None,
         except Exception as exc:
             log.debug("segment copy failed for %s: %s", src_shape.name, exc)
 
+    # Cloth physics (FO4 hair with Hair_*_Cloth* / Ponytail_*_Cloth* bones):
+    # the source nif carries a BSClothExtraData on its ROOT. The CK moves that
+    # block VERBATIM onto the hair TriShape in the facegeom (byte-identical even
+    # though the bones are height-scaled — verified md5-equal vs source). Without
+    # it the cloth bones have no simulation and the hair stretches to infinity /
+    # the origin in-game. PyNifly's `cloth_data` property only reads/writes the
+    # ROOT, so attach to the shape by calling the DLL with the shape handle as
+    # the target (None would be the root). `len(data) - 1` matches PyNifly's own
+    # setter convention (the read buffer carries a trailing null).
+    if any("Cloth" in b for b in src_shape.bone_names):
+        for name, data in src_shape.file.cloth_data:
+            nifly.setClothExtraData(dst._handle, new_shape._handle,
+                                    name.encode("utf-8"), data, len(data) - 1)
+
 
 def _apply_facebones(base_verts: list, facebones_rel: str, deltas: dict,
                      resolver) -> list:
@@ -273,7 +352,9 @@ def build_facegen_nif(form_id: str, base_plugin: str, headparts: list,
                       hair_palette_scale: Optional[float] = None,
                       base_normal: Optional[str] = None,
                       base_specular: Optional[str] = None,
-                      aux_textures: bool = False) -> bool:
+                      aux_textures: bool = False,
+                      bone_scale: float = 1.0,
+                      skin_tone=None) -> bool:
     """Assemble and write the facegeom nif for one NPC. Returns True on success.
 
     `headparts` come from `resolve_headparts`. The Face part's Diffuse is always
@@ -332,7 +413,17 @@ def build_facegen_nif(form_id: str, base_plugin: str, headparts: list,
                     src_xf = src_nif.nodes[bone].transform
                     xf = TransformBuf()
                     xf.set_identity()  # identity rotation, matching CK
-                    xf.translation = src_xf.translation
+                    # Scale bone positions by the race's per-sex height: the CK
+                    # bakes the facegen skeleton at this scale. Skeleton bones get
+                    # rebound to the (height-scaled) actor skeleton in-game so
+                    # their scale is moot — but NIF-LOCAL bones not in the skeleton
+                    # (cloth-physics hair: Hair_*_Cloth* / Ponytail_*_Cloth*) are
+                    # NOT rebound, so at a race height != 1.0 they'd stay unscaled
+                    # and the cloth-weighted hair verts stretch off the head.
+                    # Verified: female Fox/Lykaios height = 0.98.
+                    t = src_xf.translation
+                    xf.translation = (t[0] * bone_scale, t[1] * bone_scale,
+                                      t[2] * bone_scale)
                     bone_xforms[canon] = xf
 
     if not sources:
@@ -378,7 +469,8 @@ def build_facegen_nif(form_id: str, base_plugin: str, headparts: list,
         _copy_shape(dst, fg, src_shape, resolver, face_textures=ft,
                     texture_overrides=hp.get("textures"),
                     hair_palette_scale=hair_palette_scale, verts=verts,
-                    rename_to=hp.get("hdpt_edid"))
+                    rename_to=hp.get("hdpt_edid"), bone_xforms=bone_xforms,
+                    skin_tone=skin_tone)
 
     dst.save()
     log.debug("wrote facegeom %s (%d bytes)", dst_path,

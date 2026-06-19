@@ -68,6 +68,7 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
         races_dir: Optional[str] = None,
         limit: Optional[int] = None,
         only_faction: Optional[str] = None,
+        only_npcs: Optional[list] = None,
         output_dir: Optional[str] = None,
         bake_facegen: bool = True,
         facegen_size: Optional[int] = 1024,
@@ -99,6 +100,10 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
     if only_faction is not None:
         only_factions = ({only_faction} if isinstance(only_faction, str)
                          else set(only_faction))
+    only_npc_set = None
+    if only_npcs is not None:
+        only_npc_set = ({only_npcs} if isinstance(only_npcs, str)
+                        else set(only_npcs))
 
     def emit(phase: str, current: int = 0, total: int = 0) -> None:
         """Report progress and sample the cancel flag. Phase boundaries and the
@@ -288,6 +293,8 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
         if not refurrify_existing and objid in furrified:
             stats['preserved'] += 1
             continue
+        if only_npc_set is not None and (npc.editor_id or '') not in only_npc_set:
+            continue
         facts = facts_for(npc.editor_id or '') or extractor.facts_for(npc)
         if only_factions is not None and not (only_factions & facts.factions):
             continue
@@ -366,7 +373,9 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
         # scan is the expensive part) so the bake doesn't rebuild them. The world
         # owns the resolver, so build_facegen_for_patch leaves it open.
         stats['facegen'] = build_facegen_for_patch(
-            patch, ps, str(data), output_dir=str(out),
+            patch, ps, str(data),
+            fallback_dir=str(world.fallback) if world.fallback else None,
+            output_dir=str(out),
             output_size=facegen_size, workers=workers, throttle=throttle,
             race_morphs=race_morphs, bone_regions=bone_regions,
             extractor=extractor, templates=world.tint_templates,

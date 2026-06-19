@@ -1,0 +1,212 @@
+# FFO scheme: Basic scheme assigning all FFO races.
+
+#  Specialty hair is never assigned randomly.
+exclude_headparts = [
+  "DLC03_HairFemale36", "FFO_DLC03_HairFemale36_*", # Acid rain 
+  "DLC03_HairFemale37", "FFO_DLC03_HairFemale37*", # Beta rays
+  "DLC03_HairMale46", "FFO_DLC03_HairMale46_*", # Gamma dream
+  "DLC03_HairMale47", "FFO_DLC03_HairMale47_*", # Chemical storm
+  "HairFemale33", "FFO_HairFemale33_*", "HairMale44", "FFO_HairMale44_*", # Megaton
+  "HairFemale34", "FFO_HairFemale34_*", # Hornet's nest
+]
+
+# In this scheme, all races can appear in all classes, but the nature of the class
+# attracts different kinds of characters.
+
+[[class_probabilities]]
+class = "CLASS_MINUTEMEN"
+races = [
+  ["FFOLykaiosRace", 30],
+  ["FFOFoxRace", 20],
+  ["FFOHyenaRace", 10],
+  ["FFOLionRace", 30],
+  ["FFOTigerRace", 40],
+  ["FFOCheetahRace", 20],
+  ["FFOHorseRace", 40],
+  ["FFODeerRace", 20],
+]
+
+[[class_probabilities]]
+class = "CLASS_BOS"
+races = [
+  ["FFOLykaiosRace", 40],
+  ["FFOFoxRace", 20],
+  ["FFOHyenaRace", 20],
+  ["FFOLionRace", 20],
+  ["FFOTigerRace", 20],
+  ["FFOCheetahRace", 20],
+  ["FFOHorseRace", 30],
+  ["FFODeerRace", 10],
+]
+
+[[class_probabilities]]
+class = "CLASS_RR"
+races = [
+  ["FFOLykaiosRace", 20],
+  ["FFOFoxRace", 20],
+  ["FFOHyenaRace", 10],
+  ["FFOLionRace", 30],
+  ["FFOTigerRace", 20],
+  ["FFOCheetahRace", 20],
+  ["FFOHorseRace", 60],
+  ["FFODeerRace", 30],
+]
+
+[[class_probabilities]]
+class = "CLASS_GUNNER"
+races = [
+  ["FFOLykaiosRace", 20],
+  ["FFOFoxRace", 20],
+  ["FFOHyenaRace", 20],
+  ["FFOLionRace", 60],
+  ["FFOTigerRace", 20],
+  ["FFOCheetahRace", 20],
+  ["FFOHorseRace", 10],
+  ["FFODeerRace", 5],
+]
+
+# Each of the Nuka-World gangs leans towards one race, but others may sneak in.
+[[class_probabilities]]
+class = "CLASS_DISCIPLES"
+races = [
+  ["FFOLykaiosRace", 5],
+  ["FFOFoxRace", 5],
+  ["FFOHyenaRace", 100],
+  ["FFOLionRace", 5],
+  ["FFOTigerRace", 5],
+  ["FFOCheetahRace", 5],
+  ["FFOHorseRace", 2],
+  ["FFODeerRace", 1],
+]
+
+[[class_probabilities]]
+class = "CLASS_OPERATOR"
+races = [
+  ["FFOLykaiosRace", 5],
+  ["FFOFoxRace", 5],
+  ["FFOHyenaRace", 5],
+  ["FFOLionRace", 5],
+  ["FFOTigerRace", 5],
+  ["FFOCheetahRace", 100],
+  ["FFOHorseRace", 2],
+  ["FFODeerRace", 1],
+]
+
+# No deer in the Pack because the Pack tends to wear their own horns.
+[[class_probabilities]]
+class = "CLASS_PACK"
+races = [
+  ["FFOLykaiosRace", 5],
+  ["FFOFoxRace", 5],
+  ["FFOHyenaRace", 100],
+  ["FFOLionRace", 5],
+  ["FFOTigerRace", 5],
+  ["FFOCheetahRace", 5],
+  ["FFOHorseRace", 5],
+]
+
+[[class_probabilities]]
+class = "CLASS_RAIDER"
+races = [
+  ["FFOLykaiosRace", 30],
+  ["FFOFoxRace", 30],
+  ["FFOHyenaRace", 50],
+  ["FFOLionRace", 30],
+  ["FFOTigerRace", 30],
+  ["FFOCheetahRace", 30],
+  ["FFOHorseRace", 16],
+  ["FFODeerRace", 8],
+]
+
+# Far Harbor classes lean heavily towards Otters
+[[class_probabilities]]
+class = "CLASS_FARHARBOR"
+races = [
+  ["FFOLykaiosRace", 5],
+  ["FFOFoxRace", 5],
+  ["FFOHyenaRace", 5],
+  ["FFOLionRace", 5],
+  ["FFOTigerRace", 5],
+  ["FFOCheetahRace", 5],
+  ["FFOHorseRace", 5],
+  ["FFODeerRace", 5],
+  ["FFOOtterRace", 500],
+]
+
+[[class_probabilities]]
+class = "CLASS_TRAPPER"
+races = [
+  ["FFOOtterRace", 700],
+  ["FFOLykaiosRace", 10],
+  ["FFOFoxRace", 10],
+  ["FFOHyenaRace", 10],
+  ["FFOLionRace", 10],
+  ["FFOTigerRace", 10],
+  ["FFOCheetahRace", 10],
+  ["FFOHorseRace", 5],
+  ["FFODeerRace", 5],
+]
+
+[[class_probabilities]]
+class = "CLASS_INSTITUTE"
+races = [
+  ["FFOLykaiosRace", 30],
+  ["FFOFoxRace", 20],
+  ["FFOHyenaRace", 10],
+  ["FFOLionRace", 30],
+  ["FFOTigerRace", 40],
+  ["FFOCheetahRace", 40],
+  ["FFOHorseRace", 50],
+  ["FFODeerRace", 50],
+]
+
+[[class_probabilities]]
+class = "CLASS_ATOM"
+races = [
+  ["FFOLykaiosRace", 5],
+  ["FFOFoxRace", 5],
+  ["FFOHyenaRace", 5],
+  ["FFOLionRace", 5],
+  ["FFOTigerRace", 5],
+  ["FFOCheetahRace", 5],
+  ["FFOHorseRace", 5],
+  ["FFODeerRace", 5],
+  ["FFOSnekdogRace", 40],
+]
+
+[[class_probabilities]]
+class = "CLASS_SETTLER"
+races = [
+  ["FFOLykaiosRace", 20],
+  ["FFOFoxRace", 20],
+  ["FFOHyenaRace", 20],
+  ["FFOLionRace", 20],
+  ["FFOTigerRace", 20],
+  ["FFOCheetahRace", 20],
+  ["FFOHorseRace", 30],
+  ["FFODeerRace", 30],
+  ["FFOOtterRace", 6],
+]
+
+# Ghouls become Snekdogs. 
+[[class_probabilities]]
+class = "CLASS_GHOUL"
+races = [
+  ["FFOSnekdogRace", 100],
+]
+
+# Some specific NPC assignments. There's a companion of each race - the others are
+# personal preference. 
+[npc_assignments]
+"BoSPaladinDanse" = "FFOLykaiosRace"
+"CompanionCait" = "FFOFoxRace"
+"CompanionDeacon" = "FFOHorseRace"
+"CompanionMacCready" = "FFOCheetahRace"
+"CompanionPiper" = "FFODeerRace"
+"CompanionX6-88" = "FFOTigerRace"
+"Cricket" = "FFOCheetahRace"
+"DLC03_CompanionOldLongfellow" = "FFOOtterRace"
+"DLC04Gage" = "FFOHyenaRace"
+"Polly" = "FFOHyenaRace"
+"PrestonGarvey" = "FFOLionRace"
+

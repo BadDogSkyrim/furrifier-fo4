@@ -43,6 +43,7 @@ def run_furrification(
             output_dir=config.output_dir,
             limit=config.limit,
             only_faction=config.only_faction,
+            only_npcs=config.only_npcs,
             bake_facegen=config.build_facegen,
             facegen_size=config.facegen_size,
             refurrify_existing=config.refurrify_existing,

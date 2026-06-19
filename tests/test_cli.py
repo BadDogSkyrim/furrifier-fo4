@@ -28,9 +28,14 @@ def test_patch_gets_esp_suffix():
     assert _parse(["--patch", "MyPatch.esl"]).patch_filename == "MyPatch.esl"
 
 
-def test_only_faction_splits_and_trims():
-    c = _parse(["--only-faction", "A, B ,C"])
+def test_faction_splits_and_trims():
+    c = _parse(["--faction", "A, B ,C"])
     assert c.only_faction == ["A", "B", "C"]
+
+
+def test_npcs_splits_and_trims():
+    c = _parse(["--npcs", "John, RosalindOrman "])
+    assert c.only_npcs == ["John", "RosalindOrman"]
 
 
 def test_no_facegen_and_size():

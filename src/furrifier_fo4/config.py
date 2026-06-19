@@ -26,6 +26,7 @@ class FurrifierConfig:
     facegen_size: Optional[int] = 1024
     limit: Optional[int] = None
     only_faction: Optional[list] = None
+    only_npcs: Optional[list] = None    # restrict to these NPC EditorIDs
     # When True (default) NPCs already furrified by an earlier run are
     # re-rolled from their vanilla base. When False they're left untouched:
     # a run skips them, the preview shows their existing baked appearance.
@@ -51,6 +52,9 @@ class FurrifierConfig:
         if args.only_faction:
             factions = [f.strip() for f in args.only_faction.split(",")
                         if f.strip()]
+        npcs = None
+        if args.only_npcs:
+            npcs = [n.strip() for n in args.only_npcs.split(",") if n.strip()]
         return cls(
             patch_filename=patch,
             race_scheme=args.scheme or cls.race_scheme,
@@ -58,6 +62,7 @@ class FurrifierConfig:
             facegen_size=args.facegen_size,
             limit=args.limit,
             only_faction=factions,
+            only_npcs=npcs,
             data_dir=args.data_dir,
             output_dir=args.output_dir,
             debug=args.debug,
@@ -82,12 +87,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--scheme", default="user", type=str.lower,
                         help="Race-assignment scheme (a *.toml in schemes/). "
                              "Default: user.", **scheme_kwargs)
-    parser.add_argument("--data-dir",
-                        help="Fallout 4 Data dir to READ source assets "
-                             "(auto-detected if omitted)")
+    parser.add_argument("--resources", dest="data_dir", metavar="DIR",
+                        help="Override resource dir searched FIRST for plugins "
+                             "and assets, before the game's Data folder (e.g. a "
+                             "mod or test fixtures). Falls back to the game Data "
+                             "for anything not found there. Defaults to the game "
+                             "Data folder (auto-detected) when omitted.")
     parser.add_argument("-o", "--output", dest="output_dir", metavar="DIR",
                         help="Directory to WRITE the patch + FaceGenData "
-                             "(defaults to --data-dir; point at a mod "
+                             "(defaults to the game Data dir; point at a mod "
                              "manager's staging folder to keep Data clean)")
     parser.add_argument("--no-facegen", action="store_true",
                         help="Skip baking per-NPC FaceCustomization textures "
@@ -102,7 +110,11 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Leave NPCs an earlier furrifier run already "
                              "furrified untouched (skip them) instead of "
                              "re-rolling them from their vanilla base")
-    parser.add_argument("--only-faction", metavar="EDID[,EDID...]",
+    parser.add_argument("--npcs", dest="only_npcs", metavar="EDID[,EDID...]",
+                        help="Restrict to NPCs with these EditorIDs "
+                             "(comma-separated) — e.g. John,RosalindOrman. "
+                             "For focused testing of specific characters.")
+    parser.add_argument("--faction", dest="only_faction", metavar="EDID[,EDID...]",
                         help="Restrict to members of these faction EditorIDs "
                              "(comma-separated) — a focused in-game sample, "
                              "e.g. SettlementDiamondCity,SettlementGoodneighbor")

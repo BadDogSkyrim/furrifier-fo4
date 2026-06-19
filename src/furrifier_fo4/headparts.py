@@ -59,20 +59,42 @@ class HeadpartPools:
                     race_edid_by_fid[r.normalize_form_id(r.form_id).value] = \
                         r.editor_id
 
+        # Keep the WINNING override per HDPT FormID (last in load order wins).
+        # An early plugin may define a hair WITH a mesh that a later one
+        # overrides to model-less (FFO_HairMale23_All); the winning version is
+        # what the engine renders, so both the readback index and the pickable
+        # pool (incl. the _is_renderable check) must reflect IT, not the first.
+        winning_hp: dict[int, Record] = {}
+        for plugin in self.plugin_set:
+            for hp in plugin.get_records_by_signature('HDPT'):
+                winning_hp[hp.normalize_form_id(hp.form_id).value] = hp
+
         # normalized HDPT FormID -> (editor_id, type_name), so we can read back
         # an NPC's currently-assigned headpart of a given type (for preserve).
         self._hp_by_fid: dict[int, tuple] = {}
-        seen = set()
-        for plugin in self.plugin_set:
-            for hp in plugin.get_records_by_signature('HDPT'):
-                fid = hp.normalize_form_id(hp.form_id).value
-                self._hp_by_fid.setdefault(
-                    fid, (hp.editor_id or '', self._hp_type(hp)))
-                edid = hp.editor_id
-                if not edid or edid in seen:
-                    continue
-                seen.add(edid)
+        for fid, hp in winning_hp.items():
+            self._hp_by_fid[fid] = (hp.editor_id or '', self._hp_type(hp))
+            if hp.editor_id:
                 self._add_headpart(hp, flst_by_fid, race_edid_by_fid)
+
+
+    @staticmethod
+    def _is_renderable(hp: Record) -> bool:
+        """True if this HDPT contributes geometry to the baked facegeom: it has
+        its own mesh (MODL) or HNAM extra parts (which carry meshes).
+
+        A model-less HDPT (no MODL, no HNAM — e.g. FFO's bald 'hair' options like
+        FFO_HairMale23_All) produces NO shape in the bake. Picking it writes a
+        PNAM the facegeom can't satisfy, so the NPC's record claims a head part
+        the baked nif lacks. FO4 treats that as a STALE facegen and REGENERATES
+        the head at runtime — discarding our baked tints/morphs. On most races
+        the regen looks ~the same; on otters it comes out visibly harsh. So we
+        keep model-less parts OUT of the pickable pool to keep record + facegeom
+        in sync (the slot then falls to the race default, which is consistent)."""
+        modl = hp.get_subrecord('MODL')
+        if modl is not None and modl.data.rstrip(b'\x00'):
+            return True
+        return hp.get_subrecord('HNAM') is not None
 
 
     def _add_headpart(self, hp: Record, flst_by_fid, race_edid_by_fid) -> None:
@@ -81,6 +103,8 @@ class HeadpartPools:
             return
         sexes = self._hp_sexes(hp)
         if not sexes:
+            return
+        if not self._is_renderable(hp):
             return
         rnam = hp.get_subrecord('RNAM')
         if rnam is None or rnam.size < 4:

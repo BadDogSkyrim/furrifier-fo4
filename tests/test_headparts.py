@@ -95,6 +95,35 @@ def _real_pools(mapping, exclude=()):
     return hp
 
 
+class _Sub:
+    def __init__(self, signature, data=b''):
+        self.signature = signature
+        self.data = data
+
+
+class _HDPTRec:
+    def __init__(self, *subs):
+        self._subs = list(subs)
+
+    def get_subrecord(self, sig):
+        for s in self._subs:
+            if s.signature == sig:
+                return s
+        return None
+
+
+def test_is_renderable_requires_model_or_extras():
+    r = HeadpartPools._is_renderable
+    # has a MODL mesh -> renderable
+    assert r(_HDPTRec(_Sub('MODL', b'FFO\\Otter\\OtterMaleHead.nif\x00'))) is True
+    # has HNAM extra parts (which carry meshes) -> renderable
+    assert r(_HDPTRec(_Sub('HNAM', b'\x00\x00\x00\x00'))) is True
+    # model-less bald 'hair' (no MODL, no HNAM) -> NOT renderable (excluded)
+    assert r(_HDPTRec(_Sub('PNAM', b'\x03\x00\x00\x00'))) is False
+    # empty MODL path counts as no model
+    assert r(_HDPTRec(_Sub('MODL', b'\x00'))) is False
+
+
 def test_exclude_filters_pool():
     pools = _real_pools(
         {('Fox', Sex.MALE, 'Hair'): ['Hair_A', 'Hair_B', 'Hair_C', 'Hair_D']},

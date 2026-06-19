@@ -282,8 +282,12 @@ class FacialBoneRegions:
     equals the RACE Face Morph `FMRI` index — so a baked NPC's FMRI/FMRS records
     map straight to the bones the facebone bake deforms)."""
 
-    def __init__(self, data_dir):
-        self.base = Path(data_dir).joinpath(*_REGIONS_SUBDIR)
+    def __init__(self, data_dir, fallback_dir=None):
+        # Region JSON search roots, data_dir first then optional fallback (the
+        # real game Data), so an override dir need only carry pinned assets.
+        self._bases = [Path(data_dir).joinpath(*_REGIONS_SUBDIR)]
+        if fallback_dir is not None:
+            self._bases.append(Path(fallback_dir).joinpath(*_REGIONS_SUBDIR))
         # (race, sex) -> (by_name: {name: region}, by_id: {id: region})
         self._cache: dict = {}
 
@@ -292,7 +296,9 @@ class FacialBoneRegions:
         if key in self._cache:
             return self._cache[key]
         suffix = "Male" if sex == Sex.MALE else "Female"
-        path = self.base / f"{race_edid}FacialBoneRegions{suffix}.txt"
+        fname = f"{race_edid}FacialBoneRegions{suffix}.txt"
+        path = next((b / fname for b in self._bases if (b / fname).exists()),
+                    self._bases[0] / fname)
         by_name: dict = {}
         by_id: dict = {}
         try:

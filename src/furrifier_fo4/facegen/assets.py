@@ -42,8 +42,15 @@ class AssetResolver:
     """
 
     def __init__(self, data_dir: Path, bsa_readers: Optional[Iterable] = None,
-                 cache_dir: Optional[Path] = None):
+                 cache_dir: Optional[Path] = None,
+                 fallback_dir: Optional[Path] = None):
         self.data_dir = Path(data_dir)
+        # Loose-file search roots, in order: data_dir first, then an optional
+        # fallback (the real game Data) so an override dir — a mod or test
+        # fixtures — only needs to carry the assets it wants to pin.
+        self._loose_roots: List[Path] = [self.data_dir]
+        if fallback_dir is not None:
+            self._loose_roots.append(Path(fallback_dir))
         self._bsa_readers: List = list(bsa_readers) if bsa_readers is not None else []
         # Cache: relpath-key (backslash, lowercase) -> absolute path on disk.
         self._resolved: dict[str, Path] = {}
@@ -63,9 +70,10 @@ class AssetResolver:
     # ------------------------------------------------------------ factory --
 
     @classmethod
-    def for_data_dir(cls, data_dir: Path) -> "AssetResolver":
-        """Scan `data_dir` for *.bsa files, open each, and return a
-        resolver wired up with all of them.
+    def for_data_dir(cls, data_dir: Path,
+                     fallback_dir: Optional[Path] = None) -> "AssetResolver":
+        """Scan `data_dir` (and `fallback_dir`, if given) for *.bsa/*.ba2
+        archives, open each, and return a resolver wired up with all of them.
 
         Archives that fail to parse (wrong version, corrupt header,
         non-archive content) are logged and skipped — we don't want one
@@ -73,30 +81,39 @@ class AssetResolver:
 
         FO4 ships assets in both `*.bsa` (rare) and `*.ba2` (the norm),
         so both are scanned; loose files still win over either.
+
+        `fallback_dir` lets `data_dir` be an override (a mod or test fixtures,
+        typically loose-only) while the base game/DLC archives are found in the
+        real Data folder. Loose files (under either root) still win over archives.
         """
         data_dir = Path(data_dir)
         readers: List = []
-        if data_dir.is_dir():
-            # Import here so the module-level import graph stays clean
-            # for test environments that don't have esplib on sys.path.
-            from esplib.bsa import BsaReader, BsaError
-            from esplib.ba2 import Ba2Reader
+        # Import here so the module-level import graph stays clean for test
+        # environments that don't have esplib on sys.path.
+        from esplib.bsa import BsaReader, BsaError
+        from esplib.ba2 import Ba2Reader
 
-            for candidate in sorted(data_dir.glob("*.bsa")):
+        roots = [data_dir]
+        if fallback_dir is not None:
+            roots.append(Path(fallback_dir))
+        for root in roots:
+            if not root.is_dir():
+                continue
+            for candidate in sorted(root.glob("*.bsa")):
                 try:
                     reader = BsaReader(candidate)
                     reader.open()
                     readers.append(reader)
                 except (BsaError, OSError) as exc:
                     log.warning("skipping %s: %s", candidate.name, exc)
-            for candidate in sorted(data_dir.glob("*.ba2")):
+            for candidate in sorted(root.glob("*.ba2")):
                 try:
                     reader = Ba2Reader(candidate)
                     reader.open()
                     readers.append(reader)
                 except (ValueError, OSError) as exc:
                     log.warning("skipping %s: %s", candidate.name, exc)
-        return cls(data_dir, bsa_readers=readers)
+        return cls(data_dir, bsa_readers=readers, fallback_dir=fallback_dir)
 
     # ------------------------------------------------------------ context --
 
@@ -162,15 +179,21 @@ class AssetResolver:
     # ------------------------------------------------------------- loose --
 
     def _find_loose(self, relpath: str) -> Optional[Path]:
-        """Case-insensitive loose-file lookup under data_dir.
-
-        Walk segment-by-segment so we don't depend on the Windows
-        filesystem's case handling — callers occasionally hit real-world
-        cases where the actual file on disk is `Meshes\\actors\\...`
-        with a capital M.
-        """
+        """Case-insensitive loose-file lookup across the search roots (data_dir
+        first, then the fallback). Returns the first root that has the file."""
         parts = relpath.replace("/", "\\").split("\\")
-        current = self.data_dir
+        for root in self._loose_roots:
+            found = self._find_loose_under(root, parts)
+            if found is not None:
+                return found
+        return None
+
+    @staticmethod
+    def _find_loose_under(root: Path, parts: List[str]) -> Optional[Path]:
+        """Resolve `parts` under `root`, segment-by-segment, case-insensitively
+        — we don't depend on the filesystem's case handling (real-world files
+        are often `Meshes\\actors\\...` with a capital M)."""
+        current = root
         for segment in parts:
             if not current.is_dir():
                 return None

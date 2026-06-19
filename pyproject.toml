@@ -19,7 +19,7 @@ furrify-fo4-gui = "furrifier_fo4.gui:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-"furrifier_fo4" = ["assets/*.svg", "preview/*.qml"]
+"furrifier_fo4" = ["assets/*.svg", "assets/*.png", "preview/*.qml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

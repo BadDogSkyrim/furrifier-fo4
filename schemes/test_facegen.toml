@@ -1,0 +1,13 @@
+# Facegen-parity golden-test scheme — see PLAN_FACEGEN_SHADER_PARITY.md.
+#
+# Forces the two test NPCs to fixed races so the @gamefiles golden test bakes
+# deterministic heads to diff against committed CK references:
+#   John          -> FFODeerRace  (head + mouth + horns + horn base + cloth-less)
+#   RosalindOrman -> FFOFoxRace    (head + cloth-physics hair)
+#
+# Assignments-only: every other NPC has no class rule and isn't furrified, and
+# the golden test pairs this with `--npcs John,RosalindOrman` anyway. NOT shipped
+# in the distribution kit (excluded via _TEST_ONLY in furrify_fo4.spec).
+[npc_assignments]
+"John" = "FFODeerRace"
+"RosalindOrman" = "FFOFoxRace"

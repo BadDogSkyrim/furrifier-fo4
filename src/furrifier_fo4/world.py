@@ -46,7 +46,17 @@ log = logging.getLogger(__name__)
 
 
 def default_races_dir() -> Path:
-    """The package's bundled race catalog dir (`<pkg>/races`)."""
+    """The bundled race catalog dir. Frozen (PyInstaller): the `races/` folder
+    copied loose next to the exe; dev: the package's sibling `races/` folder.
+
+    Routes through loader._find_resource_dir so it agrees with how schemes/ and
+    builtin.toml are located — otherwise a frozen kit looks for races/ inside the
+    bundle (via __file__) and never finds the loose, user-editable copy.
+    """
+    from .loader import _find_resource_dir
+    found = _find_resource_dir("races")
+    if found is not None:
+        return found
     return Path(__file__).resolve().parent.parent.parent / "races"
 
 
@@ -61,7 +71,13 @@ class FurryWorld:
             if progress is not None:
                 progress(msg)
 
-        self.data = Path(data_dir or find_game_data("fo4"))
+        # `data_dir` (the --resources override) is searched FIRST for plugins
+        # and assets; the real game Data is the fallback for anything not there.
+        # When no override is given, the game Data is the sole root (no fallback).
+        game = Path(find_game_data("fo4"))
+        override = Path(data_dir) if data_dir else None
+        self.data = override or game
+        self.fallback = game if override is not None else None
         self.scheme = load_scheme(scheme_name)
         self.scheme.build_indexes()
         self.cust = load_customization(Path(races_dir) if races_dir
@@ -69,7 +85,9 @@ class FurryWorld:
 
         if plugins is None:
             plugins = list(LoadOrder.from_game("fo4", active_only=True))
-        lo = LoadOrder.from_list(plugins, data_dir=str(self.data))
+        lo = LoadOrder.from_list(
+            plugins, data_dir=str(self.data),
+            fallback_dir=str(self.fallback) if self.fallback else None)
         self.ps = PluginSet(lo)
         strings = find_strings_dir("fo4")
         for p in self.ps:
@@ -87,7 +105,7 @@ class FurryWorld:
             self.ps, exclude=self.scheme.exclude_headparts)
         self.race_tints = RaceTints(self.ps)
         self.race_morphs = RaceMorphs(self.ps)
-        self.bone_regions = FacialBoneRegions(self.data)
+        self.bone_regions = FacialBoneRegions(self.data, self.fallback)
 
         # Validate the catalog against the real race data now that both are
         # loaded — warns (with name suggestions) on facemorph presets/regions
@@ -105,7 +123,7 @@ class FurryWorld:
 
         # Facegen indexes (the AssetResolver BA2 scan is the expensive one).
         self.tint_templates = RaceTintTemplates(self.ps)
-        self.resolver = AssetResolver.for_data_dir(self.data)
+        self.resolver = AssetResolver.for_data_dir(self.data, self.fallback)
         self.base_heads = BaseHeadTextures(self.headpart_pools, self.resolver,
                                            races_by_edid=self.races_by_edid)
 

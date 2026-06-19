@@ -87,4 +87,5 @@ aliases = [
     ["_hod_arlen", "_hod_arlen_power_armor"],
     ["_hod_katrina", "_hod_dead_lookalike_katrina"],
     ["SS2_Jake", "SS2C2_Jake_Injured"],
+    ["MalcolmLatimer", "MS13Photo_MalcolmLatimer"]
 ]
