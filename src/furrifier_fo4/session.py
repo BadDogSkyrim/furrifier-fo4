@@ -353,6 +353,14 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
         stats['armas_patched'] += add_race_to_all_armor(
             patch, ps, ghoul_race, target_race)
 
+    # Sort the master list into canonical order (master-flagged before ESP)
+    # before saving. esplib adds masters in first-referenced order; FO4 requires
+    # them sorted, and a light (ESL) master stranded in the ESP section makes the
+    # engine/xEdit mis-resolve overrides of its records (they fall back to a
+    # base-game FormID). Remaps every FormID to the new indices.
+    if patch.sort_masters():
+        log.info("sorted patch master list into canonical order")
+
     emit("Saving patch…")
     patch.save()
     log.info("saved %s: %d furrified / %d total (%d preserved); "
