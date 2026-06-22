@@ -30,6 +30,20 @@ Key flags: `--scheme {ffo_scheme,ffo_test,single_race,test_facegen,user}`,
 `--faction EDID[,EDID...]`, `--resources DIR` (override resource dir, searched
 before the game Data folder), `-o/--output DIR`, `--no-facegen`, `--limit N`.
 
+Output-shaping flags:
+- `--pack` — bundle the baked facegen into `<patch> - Main.ba2` (GNRL nifs) +
+  `<patch> - Textures.ba2` (DX10 dds) and remove the loose files. No effect with
+  `--no-facegen`.
+- `--esl` — flag the patch light (ESL/ESPFE); extension stays `.esp`. Falls back
+  to a full ESP with a warning if the run mints >2048 new records.
+- `--no-variants` — skip variant-expansion (clone-army face diversification).
+  Mints far fewer new records — needed for `--esl` to actually fit on a full run.
+
+```powershell
+# Loadable, slot-free release: light plugin + packed facegen, no loose clutter
+python -m furrifier_fo4 --scheme ffo_scheme --no-variants --esl --pack
+```
+
 ### Targeted facegen-parity test run (John + Rosalind)
 
 ```powershell
