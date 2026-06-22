@@ -99,6 +99,7 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
         refurrify_existing: bool = True,
         variant_expansion: bool = True,
         emit_esl: bool = False,
+        pack: bool = False,
         workers: Optional[int] = None,
         throttle: bool = False,
         world=None,
@@ -182,7 +183,7 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
              'no_child_race': 0, 'preserved': 0, 'armas_patched': 0,
              'templated': 0, 'owner_furrified': 0, 'minimal_children': 0,
              'expanded_owners': 0, 'variants': 0, 'race_counts': {},
-             'esl': False, 'new_records': 0}
+             'esl': False, 'new_records': 0, 'packed': []}
     # ghoul vanilla race EDID -> furry target race name, filled during the run.
     ghoul_targets: dict[str, str] = {}
 
@@ -431,6 +432,15 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
             pools=headpart_pools, races_by_edid=world.races_by_edid,
             resolver=world.resolver, base_heads=world.base_heads,
             progress=progress, cancel_event=cancel_event)
+
+        # Pack the freshly-baked loose facegen into a pair of game-loadable
+        # BA2s (Main GNRL .nif + Textures DX10 .dds) named after the patch, and
+        # remove the loose trees. Run-only; needs the bake to have happened.
+        if pack:
+            from .pack import pack_facegen
+            emit("Packing facegen into BA2…")
+            archives = pack_facegen(out, patch_name)
+            stats['packed'] = [str(p) for p in archives]
 
     emit("Done")
     # Release the world we built ourselves (CLI/tests). A caller-supplied world

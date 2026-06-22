@@ -313,6 +313,15 @@ class FurrifierWindow(QMainWindow):
             "stays usable (slower). Off = all cores.")
         self.build_facegen.toggled.connect(self.throttle.setEnabled)
         opts.addWidget(self.throttle)
+        opts.addSpacing(em4)
+        # Pack baked facegen into a pair of BA2s (only meaningful with facegen).
+        self.pack = QCheckBox("Pack BA2")
+        self.pack.setToolTip(
+            "After baking, pack the facegen into '<patch> - Main.ba2' + "
+            "'<patch> - Textures.ba2' (FO4 auto-loads them) and remove the "
+            "loose files. No effect when Build FaceGen is off.")
+        self.build_facegen.toggled.connect(self.pack.setEnabled)
+        opts.addWidget(self.pack)
         opts.addStretch(1)
         form.addRow("FaceGen", self._wrap(opts))
 
@@ -489,6 +498,7 @@ class FurrifierWindow(QMainWindow):
             refurrify_existing=self.refurrify.isChecked(),
             variant_expansion=self.variants.isChecked(),
             emit_esl=self.emit_esl.isChecked(),
+            pack=self.pack.isChecked(),
             throttle=self.throttle.isChecked(),
         )
 

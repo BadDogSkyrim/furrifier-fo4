@@ -1,7 +1,14 @@
 # PLAN — Pack generated facegen into BA2 archives
 
-**Status:** PLAN ONLY (Hugh, 2026-06-19). Approved scope: **full Main + Textures
-BA2** (game-loadable). Do not start implementing until Hugh greenlights.
+**Status:** BUILT 2026-06-22 (phases 1–5). Greenlit by Hugh; implemented per the
+TDD phases below. esplib gained `ba2_hash`/`_hash_path`/`_parse_dds` + `Ba2Writer`
+(GNRL + DX10), with hermetic hash-pin and reader-oracle round-trip tests. The
+furrifier gained `pack.py` (`pack_facegen`) + a `--pack` CLI flag / "Pack BA2"
+GUI checkbox, wired through `session.run(pack=)`. Verified end-to-end: a real
+2-NPC `--pack` run emits `FO4FurryPatch - Main.ba2` (GNRL, valid NIFs) +
+`- Textures.ba2` (DX10, valid 1024² BC7 DDS) and removes the loose trees.
+**Remaining: phase 6 — in-game validation (Hugh)** is the only thing the self
+round-trip can't prove (engine acceptance of the hash + single-chunk DX10).
 
 ## Goal
 

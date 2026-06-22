@@ -38,6 +38,11 @@ def test_no_variants_flag():
     assert _parse(["--no-variants"]).variant_expansion is False
 
 
+def test_pack_flag():
+    assert _parse([]).pack is False
+    assert _parse(["--pack"]).pack is True
+
+
 def test_faction_splits_and_trims():
     c = _parse(["--faction", "A, B ,C"])
     assert c.only_faction == ["A", "B", "C"]

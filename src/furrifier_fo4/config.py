@@ -40,6 +40,10 @@ class FurrifierConfig:
     # light object-ID range; a run that mints more than 2048 new records falls
     # back to a full ESP with a warning. The .esp extension is kept either way.
     emit_esl: bool = False
+    # Pack the run's loose facegen (nif + dds) into a pair of game-loadable
+    # BA2 archives named after the patch (<stem> - Main/Textures.ba2) and remove
+    # the loose trees. Only meaningful when build_facegen is on.
+    pack: bool = False
     data_dir: Optional[str] = None      # READ source assets (auto-detected)
     output_dir: Optional[str] = None    # WRITE patch + FaceGenData (def: data)
     debug: bool = False
@@ -79,6 +83,7 @@ class FurrifierConfig:
             refurrify_existing=not args.no_refurrify,
             variant_expansion=not args.no_variants,
             emit_esl=args.esl,
+            pack=args.pack,
             workers=args.workers,
             throttle=args.throttle,
         )
@@ -126,6 +131,11 @@ def build_parser() -> argparse.ArgumentParser:
                              "templated NPCs into multiple furry faces). Mints "
                              "far fewer new records — needed for a run to fit "
                              "ESL (see --esl) — at the cost of clone uniformity.")
+    parser.add_argument("--pack", action="store_true",
+                        help="Pack the baked facegen into a pair of BA2 "
+                             "archives (<patch-stem> - Main.ba2 + - Textures."
+                             "ba2) so FO4 auto-loads them, and remove the loose "
+                             "files. No effect with --no-facegen.")
     parser.add_argument("--esl", action="store_true",
                         help="Flag the patch as a light plugin (ESL/ESPFE) so "
                              "it doesn't consume a regular load-order slot. The "

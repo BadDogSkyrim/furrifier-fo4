@@ -10,6 +10,7 @@ import logging
 import sys
 import time
 import threading
+from pathlib import Path
 from typing import Optional
 
 from .config import FurrifierConfig, build_parser, normalize_argv, setup_logging
@@ -49,6 +50,7 @@ def run_furrification(
             refurrify_existing=config.refurrify_existing,
             variant_expansion=config.variant_expansion,
             emit_esl=config.emit_esl,
+            pack=config.pack,
             workers=config.workers,
             throttle=config.throttle,
             world=world,
@@ -87,6 +89,9 @@ def run_furrification(
     if fg:
         log.info("  FaceGen: %d textures, %d nifs (%d failed)",
                  fg.get("baked", 0), fg.get("nif", 0), fg.get("nif_failed", 0))
+    if stats.get("packed"):
+        log.info("  Packed into: %s",
+                 ", ".join(Path(p).name for p in stats["packed"]))
     by_race = stats.get("race_counts") or {}
     for race, n in sorted(by_race.items(), key=lambda kv: -kv[1]):
         log.info("      %-22s %d", race, n)
