@@ -31,6 +31,15 @@ class FurrifierConfig:
     # re-rolled from their vanilla base. When False they're left untouched:
     # a run skips them, the preview shows their existing baked appearance.
     refurrify_existing: bool = True
+    # Diversify clone-army templated NPCs into K furry variants behind a leveled
+    # list (the injection pre-pass). Off = templated leaves inherit one furry
+    # face through their trait-owner; mints far fewer new records (lets a run fit
+    # ESL — see emit_esl).
+    variant_expansion: bool = True
+    # Emit the patch as a light plugin (ESL/ESPFE) when its new records fit the
+    # light object-ID range; a run that mints more than 2048 new records falls
+    # back to a full ESP with a warning. The .esp extension is kept either way.
+    emit_esl: bool = False
     data_dir: Optional[str] = None      # READ source assets (auto-detected)
     output_dir: Optional[str] = None    # WRITE patch + FaceGenData (def: data)
     debug: bool = False
@@ -68,6 +77,8 @@ class FurrifierConfig:
             debug=args.debug,
             log_file=args.log_file,
             refurrify_existing=not args.no_refurrify,
+            variant_expansion=not args.no_variants,
+            emit_esl=args.esl,
             workers=args.workers,
             throttle=args.throttle,
         )
@@ -110,6 +121,17 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Leave NPCs an earlier furrifier run already "
                              "furrified untouched (skip them) instead of "
                              "re-rolling them from their vanilla base")
+    parser.add_argument("--no-variants", action="store_true",
+                        help="Skip variant-expansion (diversifying clone-army "
+                             "templated NPCs into multiple furry faces). Mints "
+                             "far fewer new records — needed for a run to fit "
+                             "ESL (see --esl) — at the cost of clone uniformity.")
+    parser.add_argument("--esl", action="store_true",
+                        help="Flag the patch as a light plugin (ESL/ESPFE) so "
+                             "it doesn't consume a regular load-order slot. The "
+                             ".esp extension is kept. If the run mints more than "
+                             "2048 new records it can't be light and is saved as "
+                             "a full ESP automatically (with a warning).")
     parser.add_argument("--npcs", dest="only_npcs", metavar="EDID[,EDID...]",
                         help="Restrict to NPCs with these EditorIDs "
                              "(comma-separated) — e.g. John,RosalindOrman. "

@@ -44,6 +44,30 @@ def _check_cancel(event: Optional[threading.Event]) -> None:
         raise CancelledError()
 
 
+# esplib mints new-record object IDs from 0x800 upward (get_next_form_id). A
+# light plugin (ESL/ESPFE) can only address object IDs through 0xFFF, so a patch
+# can hold at most 0xFFF - 0x800 + 1 = 2048 NEW records and still be flagged
+# light. Overrides keep their master's FormID and don't consume an object ID.
+_ESL_FIRST_OBJECT_ID = 0x800
+ESL_MAX_NEW_RECORDS = 0x1000 - _ESL_FIRST_OBJECT_ID   # 2048
+
+
+def esl_new_record_count(patch) -> int:
+    """How many NEW records `patch` has minted (overrides excluded)."""
+    return patch.header.next_object_id - _ESL_FIRST_OBJECT_ID
+
+
+def apply_esl_flag(patch) -> tuple[bool, int]:
+    """Flag `patch` light (ESL/ESPFE) iff its new records fit the ESL object-ID
+    range. Returns (made_light, new_record_count); when the count exceeds
+    ESL_MAX_NEW_RECORDS the flag is left off so the patch stays a full ESP. The
+    file extension is unaffected either way — a light .esp is ESPFE."""
+    count = esl_new_record_count(patch)
+    fits = count <= ESL_MAX_NEW_RECORDS
+    patch.header.is_esl = fits
+    return fits, count
+
+
 def furrifier_output_names(plugin_names, data_dir) -> set:
     """The subset of `plugin_names` that are furrifier output (TES4 author
     stamped FURRIFIER_AUTHOR), lowercased. Reads only each plugin's header
@@ -74,6 +98,7 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
         facegen_size: Optional[int] = 1024,
         refurrify_existing: bool = True,
         variant_expansion: bool = True,
+        emit_esl: bool = False,
         workers: Optional[int] = None,
         throttle: bool = False,
         world=None,
@@ -156,7 +181,8 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
     stats = {'total': 0, 'gated': 0, 'furrified': 0, 'left_human': 0,
              'no_child_race': 0, 'preserved': 0, 'armas_patched': 0,
              'templated': 0, 'owner_furrified': 0, 'minimal_children': 0,
-             'expanded_owners': 0, 'variants': 0, 'race_counts': {}}
+             'expanded_owners': 0, 'variants': 0, 'race_counts': {},
+             'esl': False, 'new_records': 0}
     # ghoul vanilla race EDID -> furry target race name, filled during the run.
     ghoul_targets: dict[str, str] = {}
 
@@ -360,6 +386,21 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
     # base-game FormID). Remaps every FormID to the new indices.
     if patch.sort_masters():
         log.info("sorted patch master list into canonical order")
+
+    # Light (ESL/ESPFE) flag: requested via emit_esl, but only honored if the
+    # run's NEW records fit the light object-ID range (≤ 2048). A larger run
+    # falls back to a full ESP with a warning. Extension stays .esp either way.
+    stats['new_records'] = esl_new_record_count(patch)
+    if emit_esl:
+        made_light, count = apply_esl_flag(patch)
+        stats['esl'] = made_light
+        if made_light:
+            log.info("ESL: flagged patch light (%d new records, limit %d)",
+                     count, ESL_MAX_NEW_RECORDS)
+        else:
+            log.warning("ESL requested but patch has %d new records (limit "
+                        "%d); saving as a full ESP instead", count,
+                        ESL_MAX_NEW_RECORDS)
 
     emit("Saving patch…")
     patch.save()

@@ -47,6 +47,8 @@ def run_furrification(
             bake_facegen=config.build_facegen,
             facegen_size=config.facegen_size,
             refurrify_existing=config.refurrify_existing,
+            variant_expansion=config.variant_expansion,
+            emit_esl=config.emit_esl,
             workers=config.workers,
             throttle=config.throttle,
             world=world,
@@ -78,6 +80,10 @@ def run_furrification(
     log.info("  Owners expanded:  %d   -> variants minted: %d",
              stats.get("expanded_owners", 0), stats.get("variants", 0))
     log.info("  ARMAs fixed: %d", stats["armas_patched"])
+    if config.emit_esl:
+        kind = "ESL (light)" if stats.get("esl") else "ESP (too big for ESL)"
+        log.info("  Plugin type: %s   new records: %d",
+                 kind, stats.get("new_records", 0))
     if fg:
         log.info("  FaceGen: %d textures, %d nifs (%d failed)",
                  fg.get("baked", 0), fg.get("nif", 0), fg.get("nif_failed", 0))

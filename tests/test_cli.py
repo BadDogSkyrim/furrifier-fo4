@@ -28,6 +28,16 @@ def test_patch_gets_esp_suffix():
     assert _parse(["--patch", "MyPatch.esl"]).patch_filename == "MyPatch.esl"
 
 
+def test_esl_flag():
+    assert _parse([]).emit_esl is False
+    assert _parse(["--esl"]).emit_esl is True
+
+
+def test_no_variants_flag():
+    assert _parse([]).variant_expansion is True
+    assert _parse(["--no-variants"]).variant_expansion is False
+
+
 def test_faction_splits_and_trims():
     c = _parse(["--faction", "A, B ,C"])
     assert c.only_faction == ["A", "B", "C"]

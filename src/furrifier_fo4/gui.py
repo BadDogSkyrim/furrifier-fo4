@@ -325,6 +325,27 @@ class FurrifierWindow(QMainWindow):
             "shows their existing look.")
         form.addRow("", self.refurrify)
 
+        # Variant-expansion: diversify clone-army templated NPCs into multiple
+        # furry faces. Off mints far fewer new records (lets a run fit ESL).
+        self.variants = QCheckBox("Diversify clone-army faces")
+        self.variants.setChecked(True)
+        self.variants.setToolTip(
+            "On: clone-army templated NPCs (e.g. generic raiders) get several "
+            "distinct furry faces behind a leveled list.\nOff: they share one "
+            "face through their template — mints far fewer new records, which a "
+            "run needs to fit a Light (ESL) plugin.")
+        form.addRow("", self.variants)
+
+        # Emit a light (ESL/ESPFE) patch when it fits; falls back to ESP + a
+        # log warning past 2048 new records. Extension stays .esp either way.
+        self.emit_esl = QCheckBox("Light (ESL) plugin")
+        self.emit_esl.setToolTip(
+            "Flag the patch as light (ESL/ESPFE) so it doesn't consume a "
+            "regular load-order slot. The .esp extension is kept.\n"
+            "If the run mints more than 2048 new records it can't be light — "
+            "it's saved as a full ESP automatically (see the log).")
+        form.addRow("", self.emit_esl)
+
         root.addLayout(form)
 
         line = QFrame()
@@ -466,6 +487,8 @@ class FurrifierWindow(QMainWindow):
             output_dir=self.output_dir.text().strip() or None,
             plugins=self._selected_plugins,
             refurrify_existing=self.refurrify.isChecked(),
+            variant_expansion=self.variants.isChecked(),
+            emit_esl=self.emit_esl.isChecked(),
             throttle=self.throttle.isChecked(),
         )
 
