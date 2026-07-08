@@ -7,11 +7,15 @@ exclude_headparts = [
   "DLC03_HairMale46", "FFO_DLC03_HairMale46_*", # Gamma dream
   "DLC03_HairMale47", "FFO_DLC03_HairMale47_*", # Chemical storm
   "HairFemale33", "FFO_HairFemale33_*", "HairMale44", "FFO_HairMale44_*", # Megaton
-  "HairFemale34", "FFO_HairFemale34_*", # Hornet's nest
+  "HairFemale34", "FFO_HairFemale34_*", "FFO_HairMale45_All", "HairMale45", # Hornet's nest
 ]
 
 # In this scheme, all races can appear in all classes, but the nature of the class
 # attracts different kinds of characters.
+#
+# Note that the values here are weights, not percentages. Below, a Minuteman is twice as
+# likely to be a tiger as a cheetah, but the absolute probability depends on the number of
+# other possible races for Minutemen.
 
 [[class_probabilities]]
 class = "CLASS_MINUTEMEN"
@@ -207,6 +211,7 @@ races = [
 "Cricket" = "FFOCheetahRace"
 "DLC03_CompanionOldLongfellow" = "FFOOtterRace"
 "DLC04Gage" = "FFOHyenaRace"
-"Polly" = "FFOHyenaRace"
-"PrestonGarvey" = "FFOLionRace"
+"Polly" = "FFOHyenaRace" # Meat vendor. Make her a carnivore.
+"PrestonGarvey" = "ManedLion" 
+"MQ104SkinnyMalone" = "FFOHyenaRace" # Not a skinny race
 

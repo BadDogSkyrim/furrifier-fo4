@@ -10,8 +10,11 @@ The furrifier furrifies those owners (once each — they are heavily shared; e.g
 one `EncRaider01Template` backs ~290 leaves) and skips the leaves, which then
 inherit the furry appearance through the unchanged template chain.
 
-Records are keyed throughout by `object_index` (the low 3 bytes of a FormID),
-matching `session.run`'s winning-record maps.
+Records are keyed throughout by their load-order-normalized FormID (so records
+from different plugins that share an object index stay distinct), matching
+`world.build_winning`'s winning-record maps. Each helper normalizes the FormIDs
+it reads through the *owning* record, so the keys it returns are directly
+comparable against those maps.
 """
 
 from __future__ import annotations
@@ -49,27 +52,43 @@ def uses_traits(npc) -> bool:
     return bool(flags & _USE_TRAITS)
 
 
+# ACBS "flags" is the u32 at byte 0 (distinct from the u16 template_flags at
+# byte 14). Bit 5 = Unique.
+_ACBS_UNIQUE = 0x00000020
+
+
+def is_unique(npc) -> bool:
+    """True if the NPC's ACBS Unique flag is set. A unique (one-off) character
+    has a fixed identity, so it must never be diversified into variant faces —
+    it's furrified in place instead."""
+    acbs = npc.get_subrecord("ACBS")
+    if acbs is None or len(acbs.data) < 4:
+        return False
+    return bool(struct.unpack_from("<I", acbs.data, 0)[0] & _ACBS_UNIQUE)
+
+
 def template_object(npc) -> Optional[int]:
-    """object_index of the NPC's Default Template (TPLT), or None if absent."""
+    """Record key of the NPC's Default Template (TPLT), or None if absent."""
     sr = npc.get_subrecord("TPLT")
     if sr is None or len(sr.data) < 4:
         return None
-    return int.from_bytes(sr.data[:4], "little") & 0xFFFFFF
+    raw = int.from_bytes(sr.data[:4], "little")
+    return npc.normalize_form_id(raw).value if raw else None
 
 
 def tpta_traits_object(npc) -> Optional[int]:
-    """object_index of the NPC's per-category Traits template (TPTA slot 0), or
+    """Record key of the NPC's per-category Traits template (TPTA slot 0), or
     None if there's no TPTA or that slot is null."""
     sr = npc.get_subrecord("TPTA")
     if sr is None or len(sr.data) < _TPTA_TRAITS_OFFSET + 4:
         return None
-    obj = int.from_bytes(
-        sr.data[_TPTA_TRAITS_OFFSET:_TPTA_TRAITS_OFFSET + 4], "little") & 0xFFFFFF
-    return obj or None
+    raw = int.from_bytes(
+        sr.data[_TPTA_TRAITS_OFFSET:_TPTA_TRAITS_OFFSET + 4], "little")
+    return npc.normalize_form_id(raw).value if raw else None
 
 
 def traits_template_object(npc) -> Optional[int]:
-    """object_index of the template the engine takes this NPC's Traits (race +
+    """Record key of the template the engine takes this NPC's Traits (race +
     head + appearance) from: the TPTA Traits slot if non-null, else the generic
     TPLT fallback. This — not bare TPLT — is the appearance source, so all face/
     race resolution must follow it (Bethesda routinely points TPLT at a combat/
@@ -78,12 +97,14 @@ def traits_template_object(npc) -> Optional[int]:
 
 
 def lvln_entry_objects(lvln) -> list:
-    """object_indexes of an LVLN's LVLO leveled-list entries (the FormID sits at
+    """Record keys of an LVLN's LVLO leveled-list entries (the FormID sits at
     byte 4 of each 12-byte LVLO)."""
     out = []
     for sr in lvln.subrecords:
         if _sig(sr) == "LVLO" and len(sr.data) >= 8:
-            out.append(int.from_bytes(sr.data[4:8], "little") & 0xFFFFFF)
+            raw = int.from_bytes(sr.data[4:8], "little")
+            if raw:
+                out.append(lvln.normalize_form_id(raw).value)
     return out
 
 

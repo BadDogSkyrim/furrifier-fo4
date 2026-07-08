@@ -144,6 +144,8 @@ class PreviewWorker(QObject):
                 "template_owner": result.template_owner,
                 "template_count": result.template_count,
                 "template_index": result.template_index,
+                "owner_formid": result.owner_formid,
+                "variant_edid": result.variant_edid,
                 "skin_tone": result.skin_tone,
             }
             self.bake_ready.emit(request_id, str(result.nif_path),

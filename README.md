@@ -1,41 +1,41 @@
 # Fallout 4 Furrifier
 
-Batch-converts Fallout 4 NPCs to furry races, built on `esplib`.
+Batch-converts Fallout 4 NPCs to furry races, built on `esplib`. Ships as the
+NPC-furrifying tool in the Furry Fallout kit.
 
 Unlike the Skyrim furrifier (≈1:1 vanilla→furry race mapping), Fallout 4 has
 essentially one playable race (HumanRace). So furry races are **distributed
 across NPC classes by weight**: NPCs are sorted into classes by their
 characteristics (race, faction, editor id, name), and each class hands out
-furry races according to weights you set. See `PLAN_FO4_SCHEME.md` (in the
-xEditDev root) for the full configuration format.
+furry races according to weights set in a scheme. See `PLAN_FO4_SCHEME.md` (in
+the xEditDev root) for the full configuration format.
 
 Furrification is **deterministic**: a given NPC always gets the same result
 across runs, as long as the load order and scheme don't change.
 
-## Status
+## Docs
 
-Under construction. Done so far:
+- **Users:** `FURRIFIER_HOWTO.md` — how to run the tool (the copy shipped beside
+  the exe in the kit).
+- **Running/testing/building this repo:** `RECIPES.md` — the command reference.
+- **Config format:** `PLAN_FO4_SCHEME.md` (xEditDev root).
 
-- **G1 — class-distribution engine** (`scheme.py`, `loader.py`): the core that
-  decides which furry race each NPC becomes. Ordered first-match
-  classification, a candidate gate (only Human/Ghoul races are ever
-  furrified — never robots, synths, super mutants, turrets, creatures),
-  deterministic weighted distribution, aliases (records that ARE one NPC),
-  families (distinct NPCs sharing a race from a leader), and the precedence
-  ladder per-NPC > family > class. Fully unit-tested.
+## What it does
 
-Still to come: G2 data loading (read FO4 RACE/HDPT/CLFM appearance data),
-G3 NPC/race furrification (RNAM swap, headparts, TETI/TEND tints), G4 armor
-passes, and G5 self-baked FaceGen with real tint-layer composition.
-
-## Configuration
-
-Two files next to the executable:
-
-- `builtin.toml` — base-game NPC classes, aliases, and families. Rarely needs
-  editing.
-- `schemes/<name>.toml` — your scheme: which furry races each class gets, and
-  any per-NPC overrides. Pick one at runtime with `--scheme <name>`.
+- **Class-distribution engine** (`scheme.py`, `loader.py`) — decides which furry
+  race each NPC becomes. Ordered first-match classification, a candidate gate
+  (only Human/Ghoul races are furrified — never robots, synths, super mutants,
+  turrets, creatures), deterministic weighted distribution, aliases (records that
+  ARE one NPC), families (distinct NPCs sharing a race from a leader), and the
+  precedence ladder per-NPC > family > class.
+- **Record furrification** — RNAM race swap, head parts, and TETI/TEND face
+  tints, plus armor/armor-addon race passes.
+- **Self-baked FaceGen** — bakes each NPC's face nif + tint-composited textures
+  directly (see the tint note below), with optional clone-army variant expansion
+  behind leveled lists.
+- **Output shaping** — `--pack` into `<patch> - Main.ba2` (GNRL) + `- Textures.ba2`
+  (DX10), `--esl` light-plugin flagging, `--no-variants`.
+- **GUI** (`gui.py`) — the shipped front end; `python -m furrifier_fo4.gui`.
 
 ## Tints & blend modes
 
@@ -51,4 +51,7 @@ white markings — Multiply does nothing to white).
 Author these blend ops in **xEdit, not the Creation Kit** — CK silently resets
 a preset's blend operation back to Default on save.
 
-Run the tests with `python -m pytest` from this directory.
+## Tests
+
+Run `python -m pytest` from this directory. See `RECIPES.md` for the full set
+(golden CK-parity test, gamefiles-only markers, etc.).

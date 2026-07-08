@@ -52,6 +52,11 @@ class AssetResolver:
         if fallback_dir is not None:
             self._loose_roots.append(Path(fallback_dir))
         self._bsa_readers: List = list(bsa_readers) if bsa_readers is not None else []
+        # Archive scan roots, set by `for_data_dir` so `release_handles` can
+        # reopen the readers lazily after they're closed. None for callers that
+        # pass explicit `bsa_readers` (tests) — those don't auto-rescan.
+        self._archive_roots: Optional[List[Path]] = None
+        self._readers_released = False
         # Cache: relpath-key (backslash, lowercase) -> absolute path on disk.
         self._resolved: dict[str, Path] = {}
         # Decoded-image cache piggybacked on the run-scoped resolver.
@@ -87,33 +92,41 @@ class AssetResolver:
         real Data folder. Loose files (under either root) still win over archives.
         """
         data_dir = Path(data_dir)
-        readers: List = []
+        inst = cls(data_dir, bsa_readers=[], fallback_dir=fallback_dir)
+        # The archive scan roots mirror the loose-file roots (data_dir first,
+        # then the optional fallback). Recorded so release_handles() can reopen.
+        inst._archive_roots = list(inst._loose_roots)
+        inst._open_readers()
+        return inst
+
+    def _open_readers(self) -> None:
+        """Scan the archive roots for *.bsa/*.ba2 and open a reader for each.
+        Archives that fail to parse are logged and skipped — one broken archive
+        in the Data folder shouldn't abort a run. Populates `_bsa_readers`."""
         # Import here so the module-level import graph stays clean for test
         # environments that don't have esplib on sys.path.
         from esplib.bsa import BsaReader, BsaError
         from esplib.ba2 import Ba2Reader
 
-        roots = [data_dir]
-        if fallback_dir is not None:
-            roots.append(Path(fallback_dir))
-        for root in roots:
+        for root in (self._archive_roots or []):
+            root = Path(root)
             if not root.is_dir():
                 continue
             for candidate in sorted(root.glob("*.bsa")):
                 try:
                     reader = BsaReader(candidate)
                     reader.open()
-                    readers.append(reader)
+                    self._bsa_readers.append(reader)
                 except (BsaError, OSError) as exc:
                     log.warning("skipping %s: %s", candidate.name, exc)
             for candidate in sorted(root.glob("*.ba2")):
                 try:
                     reader = Ba2Reader(candidate)
                     reader.open()
-                    readers.append(reader)
+                    self._bsa_readers.append(reader)
                 except (ValueError, OSError) as exc:
                     log.warning("skipping %s: %s", candidate.name, exc)
-        return cls(data_dir, bsa_readers=readers, fallback_dir=fallback_dir)
+        self._readers_released = False
 
     # ------------------------------------------------------------ context --
 
@@ -139,6 +152,25 @@ class AssetResolver:
             except Exception as exc:
                 log.debug("cache cleanup failed: %s", exc)
         self._cache_dir = None
+
+    def release_handles(self) -> None:
+        """Close the open archive (BA2/BSA) file handles so the OS locks on the
+        game's Data archives are released — a mod manager (Vortex/MO2) can then
+        deploy while this process stays alive (the run's output plugin/archives
+        sit in a mod folder the deploy must relink). Keeps the resolved-path and
+        image caches and the temp extract dir; the readers reopen lazily on the
+        next archive read (see `_extract_from_bsa`). Idempotent. Only reopens if
+        the resolver knows its scan roots (built via `for_data_dir`)."""
+        for reader in self._bsa_readers:
+            try:
+                reader.close()
+            except Exception as exc:
+                log.debug("archive close failed: %s", exc)
+        n = len(self._bsa_readers)
+        self._bsa_readers = []
+        self._readers_released = True
+        if n:
+            log.info("released %d archive handle(s) so the folder can be deployed", n)
 
     @property
     def cache_root(self) -> Optional[str]:
@@ -217,6 +249,11 @@ class AssetResolver:
     # --------------------------------------------------------------- bsa --
 
     def _extract_from_bsa(self, relpath: str) -> Optional[Path]:
+        # Reopen the archive readers if they were released after a prior run
+        # (release_handles). Only genuine archive reads pay this — loose hits
+        # never reach here, so a deploy-then-idle GUI keeps its handles closed.
+        if self._readers_released and self._archive_roots:
+            self._open_readers()
         key = relpath.replace("/", "\\")
         for reader in self._bsa_readers:
             if reader.has_file(key):

@@ -38,8 +38,10 @@ def add_race_to_all_armor(patch: Plugin, plugin_set,
     its Additional Races. Creates/updates the ARMA override in `patch`.
     Returns the number of ARMAs patched.
 
-    Winning-override only: walk each object id's last definition across the
-    load order so we don't patch a record a later plugin already replaced.
+    Winning-override only: walk each record's last definition across the load
+    order so we don't patch a record a later plugin already replaced. Keyed by
+    normalized FormID (not bare object index) so ARMAs from different plugins
+    that share the low 24 bits don't shadow each other.
     """
     source_fid = source_race.normalize_form_id(source_race.form_id).value
     target_fid = target_race.normalize_form_id(target_race.form_id)
@@ -49,7 +51,7 @@ def add_race_to_all_armor(patch: Plugin, plugin_set,
         if plugin is patch:
             continue
         for arma in plugin.get_records_by_signature('ARMA'):
-            winning[arma.form_id.value & 0xFFFFFF] = arma
+            winning[arma.normalize_form_id(arma.form_id).value] = arma
 
     patched = 0
     for arma in winning.values():

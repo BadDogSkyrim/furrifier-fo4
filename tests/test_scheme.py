@@ -128,6 +128,52 @@ races = [["FFOFoxRace", 100]]
         assert s.class_rules[0].class_name == 'CLASS_FARHARBOR'
 
 
+    def test_scheme_can_add_aliases(self):
+        # A scheme adds an alias for a mod NPC; the built-in alias survives too.
+        # (Top-level arrays must precede SCHEME's [npc_assignments] table.)
+        scheme = 'aliases = [["ModNPC", "ModNPCMemoryVariant"]]\n' + SCHEME
+        s = make_scheme(BUILTIN, scheme)
+        assert 'Kellogg' in s.aliases          # built-in kept
+        assert s.aliases['ModNPC'] == ['ModNPC', 'ModNPCMemoryVariant']
+        # reverse index picks up the scheme member
+        assert s._alias_of['modnpcmemoryvariant'] == 'ModNPC'
+
+
+    def test_scheme_can_add_families(self):
+        # A scheme adds a mod family; the built-in family survives too.
+        scheme = 'families = [["ModLeader", "ModSibling"]]\n' + SCHEME
+        s = make_scheme(BUILTIN, scheme)
+        leaders = {fam[0] for fam in s.families}
+        assert 'JackCabot' in leaders          # built-in kept
+        assert 'ModLeader' in leaders
+        assert s._family_leader['modsibling'] == 'ModLeader'
+
+
+    def test_scheme_alias_overrides_builtin_signature(self):
+        # Same signature in both: the scheme's member list wins.
+        scheme = 'aliases = [["Kellogg", "SomeModKelloggClone"]]\n' + SCHEME
+        s = make_scheme(BUILTIN, scheme)
+        assert s.aliases['Kellogg'] == ['Kellogg', 'SomeModKelloggClone']
+
+
+    def test_aliases_and_families_are_allowed_scheme_keys(self, caplog):
+        with caplog.at_level('WARNING'):
+            _lint_top_level({'aliases': [], 'families': []},
+                            _SCHEME_KEYS, 's.toml')
+        assert not any('unrecognized top-level key' in r.message
+                       for r in caplog.records)
+
+
+    def test_bad_scheme_alias_row_raises(self):
+        with pytest.raises(SchemeError):
+            make_scheme('', 'aliases = [["LoneEntry"]]')
+
+
+    def test_bad_scheme_family_row_raises(self):
+        with pytest.raises(SchemeError):
+            make_scheme('', 'families = ["not-a-list"]')
+
+
     def test_bad_match_row_raises(self):
         with pytest.raises(SchemeError):
             make_scheme('class_match = [["X", "RACE"]]', '')

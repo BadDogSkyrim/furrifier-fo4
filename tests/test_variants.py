@@ -23,6 +23,11 @@ def test_variant_count_clamps_and_scales():
 
 # --- fakes ----------------------------------------------------------------
 
+class _Norm:
+    def __init__(self, value):
+        self.value = value
+
+
 class _Sub:
     def __init__(self, signature, data):
         self.signature = signature
@@ -42,6 +47,11 @@ class _Rec:
             if s.signature == sig:
                 return s
         return None
+
+    def normalize_form_id(self, fid):
+        # Identity: these synthetic records have no master list, so the raw
+        # value already is the (here object-index-only) key.
+        return _Norm(fid if isinstance(fid, int) else fid.value)
 
 
 class _Plugin:

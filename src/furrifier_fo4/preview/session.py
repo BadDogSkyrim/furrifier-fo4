@@ -50,12 +50,12 @@ def _skin_tone_hex(record) -> Optional[str]:
 class PreviewResult:
     __slots__ = ("nif_path", "facecust_dir", "race_name", "editor_id",
                  "parent_race", "breed", "template_owner", "template_count",
-                 "template_index", "skin_tone")
+                 "template_index", "skin_tone", "owner_formid", "variant_edid")
 
     def __init__(self, nif_path, facecust_dir, race_name, editor_id,
                  parent_race=None, breed=None,
                  template_owner=None, template_count=0, template_index=0,
-                 skin_tone=None):
+                 skin_tone=None, owner_formid=None, variant_edid=None):
         self.nif_path = nif_path
         self.facecust_dir = facecust_dir
         self.race_name = race_name
@@ -76,6 +76,11 @@ class PreviewResult:
         self.template_owner = template_owner
         self.template_count = template_count
         self.template_index = template_index
+        # Identity of the exact face shown: the trait-owner (base record) FormID,
+        # and — when a variant is shown — the EDID that variant is minted with at
+        # run time (e.g. "CompanionDeacon_F02"). Both None for a normal NPC.
+        self.owner_formid = owner_formid
+        self.variant_edid = variant_edid
 
 
 class PreviewSession:
@@ -225,6 +230,8 @@ class PreviewSession:
         template_owner = None
         template_count = 0
         template_index = 0
+        owner_formid = None
+        variant_edid = None
         parent_race = None
         breed_name = None
         breed_signature = None      # family-shared breed key (non-templated path)
@@ -260,6 +267,8 @@ class PreviewSession:
                 owner_obj, owner_edid, signature, vidx = opts[template_index]
                 owner_base = (self.base_winning.get(owner_obj)
                               or self.winning.get(owner_obj))
+                owner_formid = owner_base.normalize_form_id(
+                    owner_base.form_id).value
                 if vidx is None:
                     target = owner_base
                     template_owner = owner_edid
@@ -268,7 +277,8 @@ class PreviewSession:
                                                new_form_id=True)
                     target.editor_id = signature
                     minted = True
-                    template_owner = f"{owner_edid} variant {vidx + 1}"
+                    template_owner = owner_edid
+                    variant_edid = signature   # the run-time variant EDID, e.g. FooTemplate_F02
             elif is_templated_leaf(npc):
                 # Templated, but no owner resolves furry — nothing to show.
                 return None
@@ -351,6 +361,8 @@ class PreviewSession:
                              template_owner=template_owner,
                              template_count=template_count,
                              template_index=template_index,
+                             owner_formid=owner_formid,
+                             variant_edid=variant_edid,
                              skin_tone=_skin_tone_hex(override))
 
 

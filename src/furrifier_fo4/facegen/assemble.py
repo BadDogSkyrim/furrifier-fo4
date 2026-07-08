@@ -303,17 +303,25 @@ def _copy_shape(dst: NifFile, fg, src_shape, resolver, face_textures=None,
         except Exception as exc:
             log.debug("segment copy failed for %s: %s", src_shape.name, exc)
 
-    # Cloth physics (FO4 hair with Hair_*_Cloth* / Ponytail_*_Cloth* bones):
-    # the source nif carries a BSClothExtraData on its ROOT. The CK moves that
-    # block VERBATIM onto the hair TriShape in the facegeom (byte-identical even
-    # though the bones are height-scaled — verified md5-equal vs source). Without
-    # it the cloth bones have no simulation and the hair stretches to infinity /
-    # the origin in-game. PyNifly's `cloth_data` property only reads/writes the
-    # ROOT, so attach to the shape by calling the DLL with the shape handle as
-    # the target (None would be the root). `len(data) - 1` matches PyNifly's own
-    # setter convention (the read buffer carries a trailing null).
-    if any("Cloth" in b for b in src_shape.bone_names):
-        for name, data in src_shape.file.cloth_data:
+    # Cloth physics (FO4 hair physics bones): the source nif carries a
+    # BSClothExtraData on its ROOT. The CK moves that block VERBATIM onto the
+    # hair TriShape in the facegeom (byte-identical even though the bones are
+    # height-scaled — verified md5-equal vs source). Without it the cloth bones
+    # have no simulation and the hair stretches to infinity / the origin in-game.
+    # PyNifly's `cloth_data` property only reads/writes the ROOT, so attach to the
+    # shape by calling the DLL with the shape handle as the target (None would be
+    # the root). `len(data) - 1` matches PyNifly's own setter convention (the read
+    # buffer carries a trailing null).
+    #
+    # The physics bones are NOT always named "*Cloth*": twin-tail/pigtail rigs use
+    # SideTail_BN_*, others use Ponytail_*, etc. (the old "Cloth"-in-name gate
+    # silently dropped cloth data for those — e.g. "Fairy Tails", whose pigtails
+    # then sat in their raw bind pose). A cloth block lists its own bone names in
+    # its bytes, so attach a block to THIS shape iff the shape is weighted to a
+    # bone the block references — naming-agnostic and safe across multi-shape nifs.
+    shape_bones = set(src_shape.bone_names)
+    for name, data in src_shape.file.cloth_data:
+        if any(b.encode("utf-8") in data for b in shape_bones):
             nifly.setClothExtraData(dst._handle, new_shape._handle,
                                     name.encode("utf-8"), data, len(data) - 1)
 

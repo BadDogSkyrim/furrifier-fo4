@@ -33,14 +33,17 @@ NON_FURRY_TARGETS = frozenset({'HumanRace', 'GhoulRace'})
 # preview) recognize an NPC the furrifier already furrified — by checking the
 # author of the plugin its winning override came from — regardless of the
 # patch's filename.
+# Marker PREFIX stamped into the patch's TES4 author. The full author also
+# carries the furrifier version (e.g. "FO4Furrifier 1.0.42"), so detection is a
+# prefix match — it still recognizes older patches stamped with the bare marker.
 FURRIFIER_AUTHOR = "FO4Furrifier"
 
 
 def is_furrifier_plugin(plugin) -> bool:
-    """True if `plugin` is a furrifier output (its TES4 author is stamped
+    """True if `plugin` is a furrifier output (its TES4 author starts with
     FURRIFIER_AUTHOR). `plugin` may be None."""
-    return bool(plugin is not None
-                and getattr(plugin.header, "author", None) == FURRIFIER_AUTHOR)
+    author = getattr(getattr(plugin, "header", None), "author", None)
+    return bool(author is not None and author.startswith(FURRIFIER_AUTHOR))
 
 
 class Sex(IntEnum):

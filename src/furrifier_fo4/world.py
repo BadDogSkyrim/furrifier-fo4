@@ -60,6 +60,44 @@ def default_races_dir() -> Path:
     return Path(__file__).resolve().parent.parent.parent / "races"
 
 
+def _winning_key(record) -> int:
+    return record.normalize_form_id(record.form_id).value
+
+
+def build_winning(ps):
+    """Index the NPC_/LVLN winners across a loaded plugin set.
+
+    Returns ``(winning, base_winning, winning_lvln, furrified)``:
+
+    - ``winning`` — absolute winner per record (incl. furrifier output)
+    - ``base_winning`` — winner among NON-furrifier plugins (the vanilla/mod
+      record the Run furrifies)
+    - ``winning_lvln`` — LVLN winner per record
+    - ``furrified`` — records whose absolute winner is itself furrifier output
+
+    Records are keyed by their load-order-normalized FormID so records from
+    different plugins that merely share the low 24 bits (object index) stay
+    distinct, while a record and its overrides collapse to one key.
+    """
+    winning: dict = {}
+    base_winning: dict = {}
+    winning_lvln: dict = {}
+    furrified: set = set()
+    for plugin in ps:
+        furrifier = is_furrifier_plugin(plugin)
+        for npc in plugin.get_records_by_signature("NPC_"):
+            key = _winning_key(npc)
+            winning[key] = npc
+            if furrifier:
+                furrified.add(key)
+            else:
+                base_winning[key] = npc
+                furrified.discard(key)
+        for lvln in plugin.get_records_by_signature("LVLN"):
+            winning_lvln[_winning_key(lvln)] = lvln
+    return winning, base_winning, winning_lvln, furrified
+
+
 class FurryWorld:
     """Plugin set + every index a preview or Run needs, loaded once."""
 
@@ -127,27 +165,13 @@ class FurryWorld:
         self.base_heads = BaseHeadTextures(self.headpart_pools, self.resolver,
                                            races_by_edid=self.races_by_edid)
 
-        # `winning` = absolute winner per objid (incl. furrifier output).
+        # `winning` = absolute winner per record (incl. furrifier output).
         # `base_winning` = winner among NON-furrifier plugins (the vanilla/mod
-        # record to furrify). `furrified` = objids whose absolute winner is
+        # record to furrify). `furrified` = records whose absolute winner is
         # itself furrifier output (already done by an earlier run). The Run
         # furrifies base_winning; in preserve mode it skips `furrified`.
-        self.winning: dict = {}
-        self.base_winning: dict = {}
-        self.winning_lvln: dict = {}
-        self.furrified: set = set()
-        for plugin in self.ps:
-            furrifier = is_furrifier_plugin(plugin)
-            for npc in plugin.get_records_by_signature("NPC_"):
-                objid = npc.form_id.value & 0xFFFFFF
-                self.winning[objid] = npc
-                if furrifier:
-                    self.furrified.add(objid)
-                else:
-                    self.base_winning[objid] = npc
-                    self.furrified.discard(objid)
-            for lvln in plugin.get_records_by_signature("LVLN"):
-                self.winning_lvln[lvln.form_id.value & 0xFFFFFF] = lvln
+        (self.winning, self.base_winning,
+         self.winning_lvln, self.furrified) = build_winning(self.ps)
 
         self._npc_by_edid: dict = {}
         for npc in self.base_winning.values():
@@ -172,6 +196,15 @@ class FurryWorld:
         if race_name is None or race_name in NON_FURRY_TARGETS:
             return None
         return race_name
+
+    def release_handles(self) -> None:
+        """Release the resolver's archive (BA2/BSA) file handles without
+        discarding the parsed world, so a mod manager can deploy while a caller
+        (the GUI) keeps this world cached for reuse. The resolver reopens the
+        archives lazily on the next asset read. Idempotent."""
+        resolver = getattr(self, "resolver", None)
+        if resolver is not None:
+            resolver.release_handles()
 
     def close(self) -> None:
         """Release the AssetResolver (BA2 handles + temp dir). Idempotent."""
@@ -244,6 +277,14 @@ class WorldCache:
                                      progress=progress)
             self._key = key
             return self._world
+
+    def release_handles(self) -> None:
+        """Release the cached world's archive file handles (if any) so a mod
+        manager can deploy, while keeping the parsed world for reuse. Idempotent
+        and safe when nothing is cached."""
+        with self._lock:
+            if self._world is not None:
+                self._world.release_handles()
 
     def close(self) -> None:
         with self._lock:

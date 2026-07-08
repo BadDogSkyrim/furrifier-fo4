@@ -27,8 +27,26 @@
 #     copies next to the exe.
 
 import os
+import re
 
 SRC = os.path.join(SPECPATH, 'src')
+
+# --- Auto-increment the build number (3rd version component) on every build --
+# The version is stamped into each generated plugin's TES4 author (session.run),
+# so every exe build gets a distinct, monotonically-increasing build number.
+# major/minor are edited by hand in src/furrifier_fo4/_version.py.
+_vpath = os.path.join(SRC, 'furrifier_fo4', '_version.py')
+with open(_vpath, 'r', encoding='utf-8') as _vf:
+    _vtxt = _vf.read()
+_m = re.search(r'__version__\s*=\s*"(\d+)\.(\d+)\.(\d+)"', _vtxt)
+if _m:
+    _new = f'{_m.group(1)}.{_m.group(2)}.{int(_m.group(3)) + 1}'
+    _vtxt = _vtxt[:_m.start()] + f'__version__ = "{_new}"' + _vtxt[_m.end():]
+    with open(_vpath, 'w', encoding='utf-8') as _vf:
+        _vf.write(_vtxt)
+    print(f"furrify_fo4: bumped build -> version {_new}")
+else:
+    print("WARNING: could not find __version__ in _version.py to bump")
 
 # --- PyNifly bundling (see furrify_skyrim.spec for the full explanation) --
 PYNIFLY_ROOT = r'C:\Modding\PyNifly\io_scene_nifly'

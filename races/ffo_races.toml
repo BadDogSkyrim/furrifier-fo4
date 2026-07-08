@@ -180,7 +180,7 @@ colors = "ElkMoose"
 facemorphs = "ElkMoose"
 EYEBROWS = {headpart=["FFODeerHorns08"]} # Moose horns 
 FACIAL_HAIR = 0.2
-weight_range = {thin=[0, 50], muscle=[20, 100]}
+weight_range = {fat=[30, 100], muscle=[30, 100]}
 
 [[race_customization]]
 race = "MooseBreed"
@@ -189,7 +189,7 @@ colors = "ElkMoose"
 facemorphs = "ElkMoose"
 EYEBROWS = 0.0 
 FACIAL_HAIR = 0.0
-weight_range = {thin=[0, 50], muscle=[20, 100]}
+weight_range = {fat=[30, 100], muscle=[30, 100]}
 
 
 ### Antelope ###
@@ -354,6 +354,14 @@ facemorphs = "Fennec"
 [[race_customization]]
 race = "FFOHorseRace"
 child_race = "FFOHorseChildRace"
+breeds = [["ManedHorseBreed", 0.5] ]
+
+[[race_customization]]
+race = "ManedHorseBreed"
+HAIR = {headpart=["FFO_HairManeFree", "FFO_HairManeRoached", "FFO_HairManeSide02F",
+    "FFO_HairManeSide02M", "FFO_HairManeSidehawkF", "FFO_HairManeSidehawkM", 
+    "FFO_HairManeSimpleF", "FFO_HairManeSimpleM", "FFO_HairManeTiedF", "FFO_HairManeTiedM", 
+    ]}
 
 
 ####### Hyenas #######
@@ -368,7 +376,7 @@ child_race = "FFOHyenaChildRace"
 [[race_customization]]
 race = "FFOLionRace"
 child_race = "FFOLionChildRace"
-breeds = [["CougarBreed", 0.05]]
+breeds = [["ManedLion", 0.5], ["CougarBreed", 0.05]]
 
 [[color_schemes.Lion]]
 Skin_tone = [
@@ -380,6 +388,12 @@ Muzzle = [["probability", 0.5], ["FFOFurWhite", 0.15], ["FFOFurWhite", 0.2], ["F
 [[race_customization]]
 race = "FFOLionRace"
 colors = "Lion"
+
+[[race_customization]]
+race = "ManedLion"
+sex  = "male"
+colors = "Lion"
+HAIR = { headpart = ["FFO_HairMaleMane"] }
 
 [[color_schemes.Cougar]]
 Skin_tone = [

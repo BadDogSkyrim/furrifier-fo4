@@ -15,6 +15,7 @@ from typing import Callable, Optional
 from esplib import LoadOrder, PluginSet, Plugin, find_game_data, find_strings_dir
 
 from .extract import FactExtractor
+from ._version import __version__
 from .furrify import RaceLibrary, furrify_npc, apply_furry, is_child_npc
 from .loader import load_scheme
 from .models import (
@@ -172,7 +173,10 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
     facts_for = world._facts_for
 
     patch = Plugin.new_plugin(str(out / patch_name), masters=[], game='fo4')
-    patch.header.author = FURRIFIER_AUTHOR
+    # Stamp the marker + furrifier version, e.g. "FO4Furrifier 1.0.42". The
+    # marker prefix is what is_furrifier_plugin matches; the version records the
+    # exact build that produced this patch.
+    patch.header.author = f"{FURRIFIER_AUTHOR} {__version__}"
     # Join the patch to the plugin set so write_form_id / copy_record can
     # denormalize load-order-indexed FormIDs (e.g. a furry race at load-order
     # index 7) into the patch's own master-list space. Without this the high
@@ -312,7 +316,7 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
         stats['total'] += 1
         if stats['total'] % 64 == 0:
             emit("Furrifying NPCs", stats['total'], total_npcs)
-        objid = npc.form_id.value & 0xFFFFFF
+        objid = npc.normalize_form_id(npc.form_id).value
         if objid in done:               # injection node already overridden
             continue
         # Preserve mode: an NPC already furrified by an earlier run (its absolute
@@ -444,7 +448,14 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
 
     emit("Done")
     # Release the world we built ourselves (CLI/tests). A caller-supplied world
-    # (the GUI's) is left open — it owns its lifetime and reuses it.
+    # (the GUI's) is left open — it owns its lifetime and reuses it — but we
+    # still release its archive file handles now that the run is done reading
+    # assets. Otherwise the process keeps every Data BA2 locked and a mod
+    # manager can't deploy the run's output (plugin + archives land in a mod
+    # folder the deploy must relink) until the app is closed. The parsed world
+    # stays cached; the resolver reopens the archives on the next run.
     if own_world:
         world.close()
+    else:
+        world.release_handles()
     return stats

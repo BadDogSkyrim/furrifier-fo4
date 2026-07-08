@@ -327,7 +327,12 @@ def test_cloth_data_moved_to_hair_shape(tmp_path):
     """FO4 cloth-physics hair: the source nif carries a BSClothExtraData on its
     ROOT; the bake must re-attach it to the baked hair TriShape (matching CK).
     Without it the cloth bones have no simulation and the hair stretches to
-    infinity/origin in-game (the Rosalind regression)."""
+    infinity/origin in-game (the Rosalind regression).
+
+    The physics bone here is `SideTail_BN_*` (a twin-tail/pigtail rig, e.g. "Fairy
+    Tails") whose name does NOT contain "Cloth" — the old name-based gate dropped
+    its cloth data. Attachment is keyed on the shape being weighted to a bone the
+    cloth block names (real FO4 cloth blobs embed their bone names)."""
     from ctypes import c_int, c_char, byref
     from pyn.niflydll import nifly
 
@@ -348,18 +353,20 @@ def test_cloth_data_moved_to_hair_shape(tmp_path):
     hair_path = _loose(tmp_path, hair_rel)
     nif = NifFile()
     nif.initialize("FO4", str(hair_path), root_type="NiNode", root_name="scene")
-    nif.add_node("Hair_C_Cloth00", _xf(translation=(0.0, 0.0, 120.0)),
+    phys_bone = "SideTail_BN_A_001"  # pigtail rig: no "Cloth" in the name
+    nif.add_node(phys_bone, _xf(translation=(0.0, 0.0, 120.0)),
                  parent=nif.root)
     shp = nif.createShapeFromData(
         "ClothHair", [(0, 0, 0), (1, 0, 0), (1, 1, 0)], [(0, 1, 2)],
         [(0.0, 0.0)] * 3, [(0.0, 0.0, 1.0)] * 3, use_type=_SITS)
     shp.skin()
-    shp.add_bone("Hair_C_Cloth00")
-    shp.set_skin_to_bone_xform("Hair_C_Cloth00", _xf())
-    shp.setShapeWeights("Hair_C_Cloth00", [(i, 1.0) for i in range(3)])
+    shp.add_bone(phys_bone)
+    shp.set_skin_to_bone_xform(phys_bone, _xf())
+    shp.setShapeWeights(phys_bone, [(i, 1.0) for i in range(3)])
     shp.shader.name = ""
     shp.save_shader_attributes()
-    cloth = b"NVCLOTHTESTDATA" + bytes(range(48))
+    # real FO4 cloth blobs embed their bone names; the attach is keyed on that.
+    cloth = b"NVCLOTHTESTDATA" + phys_bone.encode() + bytes(range(48))
     nif.cloth_data = [("Binary Data", cloth + b"\x00")]  # root, per FFO source
     nif.save()
 

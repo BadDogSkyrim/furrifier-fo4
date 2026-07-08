@@ -176,6 +176,13 @@ class _Worker(QThread):
         except Exception as exc:  # pragma: no cover - GUI safety net
             logging.getLogger(__name__).exception("run failed")
             self.failed.emit(str(exc))
+        finally:
+            # Release the cached world's archive handles on every outcome
+            # (done, cancelled, failed) so Vortex/MO2 can deploy while the GUI
+            # stays open. The parsed world stays cached; archives reopen on the
+            # next run. (session.run already does this on success; this also
+            # covers cancel/failure.)
+            self._cache.release_handles()
 
 
 class FurrifierWindow(QMainWindow):

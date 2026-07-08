@@ -35,7 +35,7 @@ from __future__ import annotations
 import logging
 import struct
 
-from .templates import (is_templated_leaf, resolve_trait_owners,
+from .templates import (is_templated_leaf, is_unique, resolve_trait_owners,
                         traits_injection_node, lvln_entry_objects)
 
 log = logging.getLogger(__name__)
@@ -120,7 +120,8 @@ def plan_injections(plugin_set, winning_npc: dict, winning_lvln: dict) -> dict:
             name = achr.get_subrecord('NAME')
             if name is None or len(name.data) < 4:
                 continue
-            base_obj = int.from_bytes(name.data[:4], 'little') & 0xFFFFFF
+            base_obj = achr.normalize_form_id(
+                int.from_bytes(name.data[:4], 'little')).value
             hit = resolve(base_obj)
             if hit is None:
                 continue
@@ -132,6 +133,9 @@ def plan_injections(plugin_set, winning_npc: dict, winning_lvln: dict) -> dict:
     for node, n in inst.items():
         if node in lvln_entries:        # leveled-selectable -> unsafe to redirect
             continue
+        node_npc = winning_npc.get(node)
+        if node_npc is not None and is_unique(node_npc):
+            continue                    # a Unique character is never diversified
         fc = faces.get(node, set())
         # Need >=1 real owner to copy as the variant base; skip dead-end chains.
         if n >= EXPAND_THRESHOLD and 0 < len(fc) < SUFFICIENT_FACES:

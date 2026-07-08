@@ -51,7 +51,10 @@ class PreviewCatalog:
             if is_furrifier_plugin(plugin):
                 continue
             for npc in plugin.get_records_by_signature("NPC_"):
-                base_winning[npc.form_id.value & 0xFFFFFF] = npc
+                # Key by normalized FormID (matching world.build_winning /
+                # PreviewSession) so records from different plugins that share
+                # the low 24 bits don't shadow each other in the picker.
+                base_winning[npc.normalize_form_id(npc.form_id).value] = npc
 
         entries = []
         for objid, npc in base_winning.items():

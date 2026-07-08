@@ -390,13 +390,17 @@ class PreviewPane(QWidget):
         count = info.get("template_count") or 0
         if owner and count:
             race = info.get("race") or "?"
+            owner_fid = info.get("owner_formid")
+            base = owner if owner_fid is None else f"{owner} [{owner_fid:06X}]"
             if count > 1:
                 idx = (info.get("template_index") or 0) + 1
-                extra = f" · Variant {idx} of {count} — ◀ ▶ to step faces"
+                vedid = info.get("variant_edid")
+                which = f": {vedid}" if vedid else ""
+                extra = f" · Variant {idx} of {count}{which} — ◀ ▶ to step faces"
             else:
                 extra = ""
             self.template_label.setText(
-                f"Inherited from {owner} → {race}{extra}")
+                f"Inherited from {base} → {race}{extra}")
             self.template_label.show()
         else:
             self.template_label.hide()

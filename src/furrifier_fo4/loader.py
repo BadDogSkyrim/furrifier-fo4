@@ -2,8 +2,11 @@
 
 Format spec: PLAN_FO4_SCHEME.md. Built-in definitions (class_match, aliases,
 families) live in a `builtin.toml`; a scheme file under `schemes/` supplies
-class_probabilities, npc_assignments, and optional extra class_match rules
-that are *prepended* to the built-ins (scheme rules win).
+class_probabilities, npc_assignments, and may also EXTEND any built-in section
+— extra class_match rules, aliases, and families — so a scheme can support a
+mod's NPCs without editing builtin.toml. In every case the scheme wins over a
+built-in on collision (class_match rules are prepended; alias signatures and
+family members are overridden).
 """
 
 from __future__ import annotations
@@ -23,8 +26,11 @@ log = logging.getLogger(__name__)
 # always a typo or a section in the wrong file (e.g. [[facemorphs]], which
 # belongs in a race catalog, not a scheme) — warn instead of silently dropping
 # the whole section.
-_SCHEME_KEYS = {'class_match', 'class_probabilities', 'npc_assignments',
-                'exclude_headparts'}
+# A scheme may define anything the built-in file can (class_match, aliases,
+# families) so it can support a mod's content without editing builtin.toml, plus
+# the scheme-only keys (probabilities, assignments, exclusions).
+_SCHEME_KEYS = {'class_match', 'aliases', 'families', 'class_probabilities',
+                'npc_assignments', 'exclude_headparts'}
 _BUILTIN_KEYS = {'class_match', 'aliases', 'families'}
 
 
@@ -74,6 +80,21 @@ def _parse_class_match(rows, source: str) -> list[MatchRule]:
     return rules
 
 
+def _parse_id_lists(rows, source: str, key: str) -> list[list[str]]:
+    """Parse an aliases/families table: a list of [first, member, ...] rows,
+    each with at least two EditorIDs. Used for both `aliases` (first entry is
+    the signature) and `families` (first entry is the leader)."""
+    out: list[list[str]] = []
+    for i, row in enumerate(rows):
+        where = f"{source} {key}[{i}]"
+        if not isinstance(row, list) or len(row) < 2:
+            raise SchemeError(
+                f"{where}: expected [first, member, ...] with at least two "
+                f"entries, got {row!r}")
+        out.append([str(x) for x in row])
+    return out
+
+
 def _parse_distributions(rows, source: str) -> dict[str, ClassDistribution]:
     """Parse [[class_probabilities]] blocks into per-class distributions."""
     dists: dict[str, ClassDistribution] = {}
@@ -104,20 +125,27 @@ def parse_scheme(builtin_data: dict, scheme_data: dict) -> Scheme:
     """
     scheme = Scheme()
 
-    # class_match: scheme rules FIRST (higher priority), then built-ins.
+    # A scheme may extend every built-in section so it can cover a mod's NPCs
+    # without editing builtin.toml. In all three the scheme takes priority over
+    # a built-in on collision.
+
+    # class_match: scheme rules FIRST (first-match-wins => higher priority).
     scheme.class_rules = (
         _parse_class_match(scheme_data.get('class_match', []), 'scheme')
         + _parse_class_match(builtin_data.get('class_match', []), 'builtin'))
 
-    # aliases: [[first, id, id, ...], ...]; first entry is the signature.
-    for row in builtin_data.get('aliases', []):
-        if not row:
-            continue
-        scheme.aliases[row[0]] = list(row)
+    # aliases: [[signature, id, ...], ...]. Built-ins loaded first, then scheme
+    # entries, so a scheme row with the same signature overrides the built-in.
+    for row in (_parse_id_lists(builtin_data.get('aliases', []), 'builtin', 'aliases')
+                + _parse_id_lists(scheme_data.get('aliases', []), 'scheme', 'aliases')):
+        scheme.aliases[row[0]] = row
 
-    # families: [[leader, member, ...], ...]
-    scheme.families = [list(fam) for fam in builtin_data.get('families', [])
-                       if fam]
+    # families: [[leader, member, ...], ...]. Scheme families appended after the
+    # built-ins; on a shared member, build_indexes' last write (the scheme's)
+    # wins, and reusing a built-in leader as the first entry extends that family.
+    scheme.families = (
+        _parse_id_lists(builtin_data.get('families', []), 'builtin', 'families')
+        + _parse_id_lists(scheme_data.get('families', []), 'scheme', 'families'))
 
     # distributions + per-NPC assignments come from the scheme file.
     scheme.distributions = _parse_distributions(

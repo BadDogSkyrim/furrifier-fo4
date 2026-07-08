@@ -1,0 +1,291 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- DRAFT (for review) — Furry Fallout SFW FOMOD. Extends the existing config
+     with a Tools step (Furrifier) and a Patches step (EAC/WAT/SS2, each gated on
+     its target master). Source paths match build_ffo_kit.py's output layout:
+       Data\, World\, WorldDLC\, Pawfeet\, Bodies\, Tools\, Patches\{EAC,WAT,SS2}\ -->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://qconsulting.ca/fo3/ModConfig5.0.xsd">
+  <moduleName>Furry Fallout</moduleName>
+  <moduleImage path="Images\Banner.png" />
+
+  <requiredInstallFiles>
+    <file source="Data\FurryFallout.esp" destination="FurryFallout.esp" />
+    <file source="Data\FurryFallout - Main.ba2" destination="FurryFallout - Main.ba2" />
+    <file source="Data\FurryFallout - Textures.ba2" destination="FurryFallout - Textures.ba2" />
+  </requiredInstallFiles>
+
+  <installSteps order="Explicit">
+
+    <!-- ================= STEP 1: Basic Setup ================= -->
+    <installStep name="Basic Setup">
+      <optionalFileGroups order="Explicit">
+
+        <group name="Include DLCs" type="SelectAtMostOne">
+          <plugins order="Explicit">
+            <plugin name="All DLCs">
+              <description>Supports DLC content. Must have all the DLCs.</description>
+              <image path="Images\NukaWorld.png" />
+              <conditionFlags>
+                <flag name="include_dlc">On</flag>
+              </conditionFlags>
+              <files>
+                <file source="Data\FurryFalloutDLC.esp" destination="FurryFalloutDLC.esp" priority="0" />
+              </files>
+              <typeDescriptor>
+                <dependencyType>
+                  <defaultType name="Optional" />
+                  <patterns>
+                    <pattern>
+                      <dependencies operator="And">
+                        <fileDependency file="DLCCoast.esm" state="Active" />
+                        <fileDependency file="DLCNukaWorld.esm" state="Active" />
+                        <fileDependency file="DLCRobot.esm" state="Active" />
+                        <fileDependency file="DLCworkshop02.esm" state="Active" />
+                      </dependencies>
+                      <type name="Required" />
+                    </pattern>
+                  </patterns>
+                </dependencyType>
+              </typeDescriptor>
+            </plugin>
+          </plugins>
+        </group>
+
+        <group name="Furry World" type="SelectExactlyOne">
+          <plugins order="Explicit">
+            <plugin name="Furry World">
+              <description>The entire world has furry elements--statues, most posters, magazines, etc. Supermutants are a dog-thing; synths, including Nick Valentine, are AMELIA or ANUBIS models.</description>
+              <image path="Images\StatueFurry.png" />
+              <conditionFlags>
+                <flag name="furry_world">On</flag>
+              </conditionFlags>
+              <files>
+                <file source="World\FurryFalloutWorld.esp" destination="FurryFalloutWorld.esp" priority="0" />
+                <file source="World\FurryFalloutWorld - Main.ba2" destination="FurryFalloutWorld - Main.ba2" priority="0" />
+                <file source="World\FurryFalloutWorld - Textures.ba2" destination="FurryFalloutWorld - Textures.ba2" priority="0" />
+              </files>
+              <typeDescriptor>
+                <type name="Optional" />
+              </typeDescriptor>
+            </plugin>
+            <plugin name="Human World">
+              <description>Objects in the world remain human.</description>
+              <image path="Images\StatueHuman.png" />
+              <typeDescriptor>
+                <type name="Optional" />
+              </typeDescriptor>
+            </plugin>
+          </plugins>
+        </group>
+
+        <group name="Outfits" type="SelectAny">
+          <plugins order="Explicit">
+            <plugin name="Pawfeet Outfits">
+              <description>Many outfits have paw feet. If you have humans in your world, they will be barefoot when wearing these outfits.</description>
+              <image path="Images\Pawfeet (2).png" />
+              <files>
+                <file source="Pawfeet\FurryFalloutOutfits.esp" destination="FurryFalloutOutfits.esp" priority="0" />
+              </files>
+              <typeDescriptor>
+                <type name="Optional" />
+              </typeDescriptor>
+            </plugin>
+            <plugin name="Prebuilt Outfit Meshes">
+              <description>Ready-built pawfeet outfit bodies. Skip if you build the outfits yourself in BodySlide.</description>
+              <image path="Images\Pawfeet.png" />
+              <files>
+                <folder source="Pawfeet\Meshes" destination="Meshes" priority="0" />
+              </files>
+              <typeDescriptor>
+                <type name="Optional" />
+              </typeDescriptor>
+            </plugin>
+          </plugins>
+        </group>
+
+      </optionalFileGroups>
+    </installStep>
+
+    <!-- ================= STEP 2: Player Race ================= -->
+    <installStep name="Next: Player Race">
+      <optionalFileGroups order="Explicit">
+        <group name="Race" type="SelectExactlyOne">
+          <plugins order="Explicit">
+            <plugin name="Human">
+              <description>Player stays human.</description>
+              <image path="Images\Human.png" />
+              <typeDescriptor><type name="Optional" /></typeDescriptor>
+            </plugin>
+            <plugin name="Cheetah">
+              <description>Play as a cheetah.</description>
+              <image path="Images\Cheetah.png" />
+              <files><file source="Data\FFO-Player-CHEETAH.esp" destination="FFO-Player-CHEETAH.esp" priority="0" /></files>
+              <typeDescriptor><type name="Optional" /></typeDescriptor>
+            </plugin>
+            <plugin name="Deer">
+              <description>Play as a deer, moose, or goat. Select horns by choosing a preset and customize from there.</description>
+              <image path="Images\Deer.png" />
+              <files><file source="Data\FFO-Player-DEER.esp" destination="FFO-Player-DEER.esp" priority="0" /></files>
+              <typeDescriptor><type name="Optional" /></typeDescriptor>
+            </plugin>
+            <plugin name="Fox">
+              <description>Play as a fox.</description>
+              <image path="Images\Fox.png" />
+              <files><file source="Data\FFO-Player-FOX.esp" destination="FFO-Player-FOX.esp" priority="0" /></files>
+              <typeDescriptor><type name="Optional" /></typeDescriptor>
+            </plugin>
+            <plugin name="Horse">
+              <description>Play as a horse.</description>
+              <image path="Images\Horse.png" />
+              <files><file source="Data\FFO-Player-HORSE.esp" destination="FFO-Player-HORSE.esp" priority="0" /></files>
+              <typeDescriptor><type name="Optional" /></typeDescriptor>
+            </plugin>
+            <plugin name="Hyena">
+              <description>Play as a hyena.</description>
+              <image path="Images\Hyena.png" />
+              <files><file source="Data\FFO-Player-HYENA.esp" destination="FFO-Player-HYENA.esp" priority="0" /></files>
+              <typeDescriptor><type name="Optional" /></typeDescriptor>
+            </plugin>
+            <plugin name="Lion">
+              <description>Play as a lion. Sabretooth option available in mouth customizations.</description>
+              <image path="Images\Lion.png" />
+              <files><file source="Data\FFO-Player-LION.esp" destination="FFO-Player-LION.esp" priority="0" /></files>
+              <typeDescriptor><type name="Optional" /></typeDescriptor>
+            </plugin>
+            <plugin name="Lykaios">
+              <description>Play as a wolf or dog.</description>
+              <image path="Images\Lykaios.png" />
+              <files><file source="Data\FFO-Player-LYKAIOS.esp" destination="FFO-Player-LYKAIOS.esp" priority="0" /></files>
+              <typeDescriptor><type name="Optional" /></typeDescriptor>
+            </plugin>
+            <plugin name="Nightstalker">
+              <description>Play as a nightstalker. By default, the NPC files convert ghouls to nightstalkers.</description>
+              <image path="Images\Nightstalker.png" />
+              <files><file source="Data\FFO-Player-SNEKDOG.esp" destination="FFO-Player-SNEKDOG.esp" priority="0" /></files>
+              <typeDescriptor><type name="Optional" /></typeDescriptor>
+            </plugin>
+            <plugin name="Otter">
+              <description>Play as an otter. By default, the NPC options locate most otters in Far Harbor.</description>
+              <image path="Images\Otter.png" />
+              <files><file source="Data\FFO-Player-OTTER.esp" destination="FFO-Player-OTTER.esp" priority="0" /></files>
+              <typeDescriptor><type name="Optional" /></typeDescriptor>
+            </plugin>
+            <plugin name="Tiger">
+              <description>Play as a tiger.</description>
+              <image path="Images\Tiger.png" />
+              <files><file source="Data\FFO-Player-TIGER.esp" destination="FFO-Player-TIGER.esp" priority="0" /></files>
+              <typeDescriptor><type name="Optional" /></typeDescriptor>
+            </plugin>
+          </plugins>
+        </group>
+      </optionalFileGroups>
+    </installStep>
+
+    <!-- ================= STEP 3: Tools ================= -->
+    <installStep name="Tools">
+      <optionalFileGroups order="Explicit">
+        <group name="Tools" type="SelectAny">
+          <plugins order="Explicit">
+            <plugin name="Furrifier">
+              <description>The Furrifier tool. Turns the NPCs of the Commonwealth furry (including NPCs from other mods) and bakes their faces. Run it after install from Data\Tools\Furrifier. See the Readme for how to use it. Alternatively, install the separate Prebuilt Facegen download instead of running this.</description>
+              <image path="Images\Human.png" />
+              <files>
+                <folder source="Tools\Furrifier" destination="Tools\Furrifier" priority="0" />
+              </files>
+              <typeDescriptor><type name="Optional" /></typeDescriptor>
+            </plugin>
+          </plugins>
+        </group>
+      </optionalFileGroups>
+    </installStep>
+
+    <!-- ================= STEP 4: Patches ================= -->
+    <!-- Each patch is NotUsable (greyed out) unless its target master is active. -->
+    <installStep name="Patches">
+      <optionalFileGroups order="Explicit">
+        <group name="Patches" type="SelectAny">
+          <plugins order="Explicit">
+            <plugin name="Eli's Armour Compendium">
+              <description>Furrifies Eli's Armour Compendium armours (paw feet, furry fit). Only available if Eli_Armour_Compendium.esp is active.</description>
+              <files>
+                <file source="Patches\EAC\FFO_EAC_Patch.esp" destination="FFO_EAC_Patch.esp" priority="0" />
+                <file source="Patches\EAC\FFO_EAC_Patch - Main.ba2" destination="FFO_EAC_Patch - Main.ba2" priority="0" />
+              </files>
+              <typeDescriptor>
+                <dependencyType>
+                  <defaultType name="NotUsable" />
+                  <patterns>
+                    <pattern>
+                      <dependencies operator="And">
+                        <fileDependency file="Eli_Armour_Compendium.esp" state="Active" />
+                      </dependencies>
+                      <type name="Optional" />
+                    </pattern>
+                  </patterns>
+                </dependencyType>
+              </typeDescriptor>
+            </plugin>
+            <plugin name="We Are The Minutemen">
+              <description>Furrifies the We Are The Minutemen outfits. Only available if W.A.T.Minutemen.esp is active.</description>
+              <files>
+                <folder source="Patches\WAT\Meshes" destination="Meshes" priority="0" />
+              </files>
+              <typeDescriptor>
+                <dependencyType>
+                  <defaultType name="NotUsable" />
+                  <patterns>
+                    <pattern>
+                      <dependencies operator="And">
+                        <fileDependency file="W.A.T.Minutemen.esp" state="Active" />
+                      </dependencies>
+                      <type name="Optional" />
+                    </pattern>
+                  </patterns>
+                </dependencyType>
+              </typeDescriptor>
+            </plugin>
+            <plugin name="Sim Settlements 2">
+              <description>Furry patch for Sim Settlements 2. Only available if SS2.esm is active.</description>
+              <files>
+                <file source="Patches\SS2\FFOSimSettlementPatch.esp" destination="FFOSimSettlementPatch.esp" priority="0" />
+                <file source="Patches\SS2\FFOSimSettlementWorldPatch.esp" destination="FFOSimSettlementWorldPatch.esp" priority="0" />
+                <file source="Patches\SS2\FFOSimSettlementPatch - Main.ba2" destination="FFOSimSettlementPatch - Main.ba2" priority="0" />
+              </files>
+              <typeDescriptor>
+                <dependencyType>
+                  <defaultType name="NotUsable" />
+                  <patterns>
+                    <pattern>
+                      <dependencies operator="And">
+                        <fileDependency file="SS2.esm" state="Active" />
+                      </dependencies>
+                      <type name="Optional" />
+                    </pattern>
+                  </patterns>
+                </dependencyType>
+              </typeDescriptor>
+            </plugin>
+          </plugins>
+        </group>
+      </optionalFileGroups>
+    </installStep>
+
+  </installSteps>
+
+  <!-- WorldDLC installs only when both DLCs and Furry World were chosen. -->
+  <conditionalFileInstalls>
+    <patterns>
+      <pattern>
+        <dependencies operator="And">
+          <flagDependency flag="include_dlc" value="On" />
+          <flagDependency flag="furry_world" value="On" />
+        </dependencies>
+        <files>
+          <file source="WorldDLC\FurryFalloutWorldDLC.esp" destination="FurryFalloutWorldDLC.esp" priority="0" />
+          <file source="WorldDLC\FurryFalloutWorldDLC - Main.ba2" destination="FurryFalloutWorldDLC - Main.ba2" priority="0" />
+          <file source="WorldDLC\FurryFalloutWorldDLC - Textures.ba2" destination="FurryFalloutWorldDLC - Textures.ba2" priority="0" />
+        </files>
+      </pattern>
+    </patterns>
+  </conditionalFileInstalls>
+
+</config>

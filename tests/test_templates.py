@@ -15,6 +15,11 @@ from furrifier_fo4.templates import (
 )
 
 
+class _Norm:
+    def __init__(self, value):
+        self.value = value
+
+
 class _Sub:
     def __init__(self, signature, data):
         self.signature = signature
@@ -34,6 +39,11 @@ class _Rec:
             if s.signature == sig:
                 return s
         return None
+
+    def normalize_form_id(self, fid):
+        # Identity: these synthetic records have no master list, so the raw
+        # value already is the (here object-index-only) key.
+        return _Norm(fid if isinstance(fid, int) else fid.value)
 
 
 def _acbs(use_traits):
@@ -83,14 +93,16 @@ def test_uses_traits_false_without_acbs():
     assert uses_traits(_Rec()) is False
 
 
-def test_template_object_extracts_low_three_bytes():
-    # file_index in the high byte must be stripped.
-    assert template_object(npc(use_traits=True, tplt=0x06012345)) == 0x012345
+def test_template_object_normalizes_full_reference():
+    # The whole TPLT FormID (file index included) is normalized through the
+    # owning record — NOT masked to the object index, which collided records
+    # across plugins. The identity fake returns the full value unchanged.
+    assert template_object(npc(use_traits=True, tplt=0x06012345)) == 0x06012345
     assert template_object(npc(use_traits=True)) is None
 
 
-def test_lvln_entry_objects_strip_file_index():
-    assert lvln_entry_objects(lvln(0x06000111, 0x01000222)) == [0x000111, 0x000222]
+def test_lvln_entry_objects_normalize_full_reference():
+    assert lvln_entry_objects(lvln(0x06000111, 0x01000222)) == [0x06000111, 0x01000222]
 
 
 def test_is_templated_leaf_requires_both_flag_and_tplt():
@@ -140,7 +152,8 @@ def test_injection_node_none_without_template():
 # resolution MUST follow TPTA[Traits], not bare TPLT.
 
 def test_tpta_traits_object_extracts_slot0():
-    assert tpta_traits_object(npc(use_traits=True, tpta_traits=0x06012345)) == 0x012345
+    # Slot 0 is normalized through the owning record (full ref, not masked).
+    assert tpta_traits_object(npc(use_traits=True, tpta_traits=0x06012345)) == 0x06012345
     assert tpta_traits_object(npc(use_traits=True)) is None
     # A null Traits slot reads as absent, not as object 0.
     assert tpta_traits_object(npc(use_traits=True, tpta_traits=0x0)) is None

@@ -33,7 +33,9 @@ class_match = [
     ["CLASS_RR", "FACTION", "RailroadFaction"],
     ["CLASS_SETTLER", "NAME", "Settler"],
     ["CLASS_TRAPPER", "FACTION", "DLC03TrapperFaction"],
+    # Anybody else is a generic settler
     ["CLASS_SETTLER", "RACE", "HumanRace"],
+    ["CLASS_SETTLER", "RACE", "HumanChildRace"],
 ]
 
 # Families auto-derived from FO4 RELA (Relationship) records, keeping
@@ -72,6 +74,7 @@ families = [
     ["V81_BobbyDeLuca", "V81_TinaDeLuca"],
     ["V81_MariaSummerset", "V81_MarkSummerset"],
     ["VadimBobrov", "YefimBobrov"],
+    ["f3DNPC_Jewel_Brennan", "f3DNPC_Jewel_Derrick", "1002A84F"] # Tales from the Commonwealth
     # ["Fahrenheit", "Hancock"], Hancock is a ghoul, she's not
 ]
 
