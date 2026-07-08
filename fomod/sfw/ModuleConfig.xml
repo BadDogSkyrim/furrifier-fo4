@@ -79,20 +79,11 @@
 
         <group name="Outfits" type="SelectAny">
           <plugins order="Explicit">
-            <plugin name="Pawfeet Outfits">
-              <description>Many outfits have paw feet. If you have humans in your world, they will be barefoot when wearing these outfits.</description>
-              <image path="Images\Pawfeet (2).png" />
-              <files>
-                <file source="Pawfeet\FurryFalloutOutfits.esp" destination="FurryFalloutOutfits.esp" priority="0" />
-              </files>
-              <typeDescriptor>
-                <type name="Optional" />
-              </typeDescriptor>
-            </plugin>
-            <plugin name="Prebuilt Outfit Meshes">
-              <description>Ready-built pawfeet outfit bodies. Skip if you build the outfits yourself in BodySlide.</description>
+            <plugin name="Prebuilt Pawfeet Outfits">
+              <description>Many outfits have paw feet, with ready-built meshes so you don't need BodySlide. If you have humans in your world, they will be barefoot when wearing these outfits.</description>
               <image path="Images\Pawfeet.png" />
               <files>
+                <file source="Pawfeet\FurryFalloutOutfits.esp" destination="FurryFalloutOutfits.esp" priority="0" />
                 <folder source="Pawfeet\Meshes" destination="Meshes" priority="0" />
               </files>
               <typeDescriptor>
