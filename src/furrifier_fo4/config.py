@@ -15,6 +15,10 @@ from typing import Optional
 
 from .loader import list_available_schemes
 
+# Extensions that mark a name as an already-complete plugin filename; anything
+# else gets `.esp` appended (see FurrifierConfig.__post_init__).
+PLUGIN_SUFFIXES = (".esp", ".esm", ".esl")
+
 
 @dataclass
 class FurrifierConfig:
@@ -56,11 +60,19 @@ class FurrifierConfig:
     workers: Optional[int] = None
     throttle: bool = False
 
+
+    def __post_init__(self):
+        # Guarantee a plugin extension no matter how the config was built (CLI,
+        # GUI, preview, tests). A bare or blank name becomes the default patch.
+        patch = (self.patch_filename or "").strip() or "FO4FurryPatch.esp"
+        if Path(patch).suffix.lower() not in PLUGIN_SUFFIXES:
+            patch += ".esp"
+        self.patch_filename = patch
+
+
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> "FurrifierConfig":
         patch = args.patch or cls.patch_filename
-        if Path(patch).suffix.lower() not in (".esp", ".esm", ".esl"):
-            patch += ".esp"
         factions = None
         if args.only_faction:
             factions = [f.strip() for f in args.only_faction.split(",")

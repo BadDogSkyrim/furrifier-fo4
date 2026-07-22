@@ -28,6 +28,16 @@ def test_patch_gets_esp_suffix():
     assert _parse(["--patch", "MyPatch.esl"]).patch_filename == "MyPatch.esl"
 
 
+def test_direct_construction_gets_esp_suffix():
+    # The GUI builds FurrifierConfig() directly (not via from_args), so the
+    # extension normalization has to live in the dataclass, not just the parser.
+    assert FurrifierConfig(patch_filename="MyPatch").patch_filename == "MyPatch.esp"
+    assert FurrifierConfig(patch_filename="MyPatch.esl").patch_filename == "MyPatch.esl"
+    assert FurrifierConfig(patch_filename="MyPatch.ESP").patch_filename == "MyPatch.ESP"
+    assert FurrifierConfig(patch_filename="  ").patch_filename == "FO4FurryPatch.esp"
+    assert FurrifierConfig().patch_filename == "FO4FurryPatch.esp"
+
+
 def test_esl_flag():
     assert _parse([]).emit_esl is False
     assert _parse(["--esl"]).emit_esl is True
