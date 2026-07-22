@@ -158,8 +158,11 @@ class _Worker(QThread):
         self._cancel_event.set()
 
     def run(self) -> None:  # QThread.run override
-        from .main import CancelledError
+        from .main import CancelledError, log_run_header
         try:
+            # Header first, before the world build below emits its load/
+            # validation output, so a captured log opens with the banner.
+            log_run_header(self.config)
             world = self._cache.get_or_build(
                 self.config.race_scheme, self.config.data_dir,
                 self.config.plugins,
@@ -201,6 +204,8 @@ class FurrifierWindow(QMainWindow):
         self._bridge = _LogBridge()
         self._bridge.new_log.connect(self._append_log)
         self._log_handler: Optional[_QtLogHandler] = None
+        self._file_log_handler: Optional[logging.FileHandler] = None
+        self._file_log_path: Optional[str] = None
         # None = use the game's enabled (active) plugins; a list = the
         # explicit selection from the plugin picker.
         self._selected_plugins: Optional[list] = None
@@ -273,6 +278,11 @@ class FurrifierWindow(QMainWindow):
         self.output_dir.setPlaceholderText("defaults to Data dir")
         form.addRow("Output dir (write)",
                     self._with_browse(self.output_dir, self._browse_output))
+
+        self.log_file = QLineEdit()
+        self.log_file.setPlaceholderText("optional: capture the run log to FILE")
+        form.addRow("Log file",
+                    self._with_browse(self.log_file, self._browse_log))
 
         plugins_row = QHBoxLayout()
         plugins_row.setContentsMargins(0, 0, 0, 0)
@@ -460,6 +470,13 @@ class FurrifierWindow(QMainWindow):
         if d:
             self.output_dir.setText(d)
 
+    def _browse_log(self) -> None:
+        f, _ = QFileDialog.getSaveFileName(
+            self, "Log file", self.log_file.text().strip() or "furrify_fo4.log",
+            "Log files (*.log *.txt);;All files (*)")
+        if f:
+            self.log_file.setText(f)
+
     def _resolve_data_dir(self) -> Optional[str]:
         d = self.data_dir.text().strip()
         if d:
@@ -501,6 +518,7 @@ class FurrifierWindow(QMainWindow):
             only_faction=factions,
             data_dir=self.data_dir.text().strip() or None,
             output_dir=self.output_dir.text().strip() or None,
+            log_file=self.log_file.text().strip() or None,
             plugins=self._selected_plugins,
             refurrify_existing=self.refurrify.isChecked(),
             variant_expansion=self.variants.isChecked(),
@@ -520,7 +538,7 @@ class FurrifierWindow(QMainWindow):
             return
         config = self._config()
         self.log.clear()  # fresh pane per run (the log FILE keeps accumulating)
-        self._install_log_handler()
+        self._install_log_handler(config.log_file)
         self.run_btn.setText("Cancel")    # repurpose for the run's duration
         self.status.setText("Starting…")
         self.progress_bar.setRange(0, 0)  # busy until the first progress signal
@@ -564,27 +582,55 @@ class FurrifierWindow(QMainWindow):
     def _append_log(self, line: str) -> None:
         self.log.appendPlainText(line)
 
-    def _install_log_handler(self) -> None:
-        if self._log_handler is not None:
+    def _install_log_handler(self, log_file: Optional[str] = None) -> None:
+        if self._log_handler is None:
+            handler = _QtLogHandler(self._bridge)
+            handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+            # Floor the handler at INFO so sub-INFO noise never reaches the
+            # pane — incl. DEBUG re-emitted from facegen WORKER processes via
+            # the QueueListener (respect_handler_level=True), where PyNifly's
+            # import-time basicConfig(level=DEBUG) re-cranks the worker root past
+            # our main-process pynifly->WARNING. The handler is the one gate that
+            # covers every process.
+            handler.setLevel(logging.INFO)
+            logging.getLogger().addHandler(handler)
+            logging.getLogger().setLevel(logging.INFO)
+            logging.getLogger("pynifly").setLevel(logging.WARNING)
+            logging.getLogger("esplib").setLevel(logging.WARNING)
+            self._log_handler = handler
+        self._install_file_log(log_file)
+
+    def _install_file_log(self, log_file: Optional[str]) -> None:
+        """Tee the log to `log_file`, appending so successive runs accumulate in
+        one file. No-op when the path is unchanged; detaches the handler when
+        `log_file` is falsy. A file that can't be opened is warned, not fatal."""
+        if log_file == self._file_log_path:
             return
-        handler = _QtLogHandler(self._bridge)
-        handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
-        # Floor the handler at INFO so sub-INFO noise never reaches the pane —
-        # incl. DEBUG re-emitted from facegen WORKER processes via the
-        # QueueListener (respect_handler_level=True), where PyNifly's import-time
-        # basicConfig(level=DEBUG) re-cranks the worker root past our main-process
-        # pynifly->WARNING. The handler is the one gate that covers every process.
-        handler.setLevel(logging.INFO)
-        logging.getLogger().addHandler(handler)
-        logging.getLogger().setLevel(logging.INFO)
-        logging.getLogger("pynifly").setLevel(logging.WARNING)
-        logging.getLogger("esplib").setLevel(logging.WARNING)
-        self._log_handler = handler
+        if self._file_log_handler is not None:
+            logging.getLogger().removeHandler(self._file_log_handler)
+            self._file_log_handler.close()
+            self._file_log_handler = None
+        self._file_log_path = log_file
+        if not log_file:
+            return
+        try:
+            fh = logging.FileHandler(log_file, mode="a", encoding="utf-8")
+        except OSError as exc:
+            logging.getLogger(__name__).warning(
+                "could not open log file %s: %s", log_file, exc)
+            self._file_log_path = None
+            return
+        # A timestamp is worth more in a persisted file than in the live pane.
+        fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s: %(message)s"))
+        fh.setLevel(logging.INFO)
+        logging.getLogger().addHandler(fh)
+        self._file_log_handler = fh
 
     def _remove_log_handler(self) -> None:
         if self._log_handler is not None:
             logging.getLogger().removeHandler(self._log_handler)
             self._log_handler = None
+        self._install_file_log(None)
 
 
 def main() -> int:

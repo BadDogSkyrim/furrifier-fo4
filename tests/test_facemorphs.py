@@ -61,16 +61,6 @@ class _Ov:
         return next((s for s in self.subs if s.signature == sig), None)
 
 
-class _BoneRegions:
-    """Stub: region name -> associated morph group."""
-
-    def __init__(self, mapping):
-        self._m = {k.lower(): v for k, v in mapping.items()}
-
-    def associated_group(self, race, sex, region_name):
-        return self._m.get(region_name.lower())
-
-
 def _u32(n):
     return struct.pack("<I", n)
 
@@ -209,15 +199,14 @@ def test_apply_explicit_group_writes_msdk_msdv():
     assert abs(vals[0] - 0.5) < 1e-6 and abs(vals[1] + 0.8) < 1e-6
 
 
-def test_apply_region_preset_resolves_via_associated_group():
+def test_apply_region_preset_resolves_via_race_record():
     rm = _fox_race()
-    # Ears region's presets resolve via its AssociatedMorphGroup ("Neck").
+    # A region whose key matches a morph group ("Neck") resolves its presets
+    # straight from the RACE record — no external region->group asset needed.
     spec = FaceMorphSpec(regions=[
-        RegionMorph("Ears - Full", presets=[("Thick Neck", 0.3)])])
-    bones = _BoneRegions({"Ears - Full": "Neck"})
+        RegionMorph("Neck", presets=[("Thick Neck", 0.3)])])
     ov = _Ov()
-    apply_facemorphs(None, ov, "FFOFoxRace", Sex.MALE, spec, rm,
-                     bone_regions=bones)
+    apply_facemorphs(None, ov, "FFOFoxRace", Sex.MALE, spec, rm)
     assert struct.unpack("<I", ov.get("MSDK")[0].data)[0] == 0x36EF36B5
     assert not ov.get("FMRI")                    # preset-only region: no transform
 

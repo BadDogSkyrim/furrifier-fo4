@@ -9,6 +9,7 @@ import numpy as np
 
 from furrifier_fo4.facegen.facebones import (
     bone_delta_matrix, facebone_displacements, _interp)
+from furrifier_fo4.facegen.assets import AssetResolver
 from furrifier_fo4.facemorphs import FacialBoneRegions
 from furrifier_fo4.models import Sex
 
@@ -167,10 +168,10 @@ def test_bones_for_fmri_indexes_by_json_id(tmp_path):
     sub.mkdir(parents=True)
     (sub / "FFOFoxRaceFacialBoneRegionsMale.txt").write_text(json.dumps(regions))
 
-    br = FacialBoneRegions(tmp_path)
+    # Resolved through an AssetResolver (loose-then-archive), the same path the
+    # facegen bake uses — here the region file is loose under tmp_path.
+    br = FacialBoneRegions(AssetResolver.for_data_dir(tmp_path))
     bones = br.bones_for_fmri("FFOFoxRace", Sex.MALE, 5)   # ID 5 == FMRI 5
     assert [b[0] for b in bones] == ["bone_R_EarTop"]
     assert br.bones_for_fmri("FFOFoxRace", Sex.MALE, 9)[0][0] == "bone_C_MasterNose"
     assert br.bones_for_fmri("FFOFoxRace", Sex.MALE, 999) == []
-    # name lookup (AssociatedMorphGroup) still works
-    assert br.associated_group("FFOFoxRace", Sex.MALE, "Ears - Full") == "Neck"

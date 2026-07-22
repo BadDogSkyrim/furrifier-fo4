@@ -7,8 +7,8 @@ and emit a plugin that inserts a furry ARMA (the FFO mesh + every FurryFallout
 race) ahead of the vanilla ARMA in each affected ARMO. Also emits a CSV log and
 a test plugin (one furrified NPC per headpart, rotated races, + baked facegen).
 
-Reusable: edit the CONFIG block for a different mod. Needs the source mod's
-meshes already extracted to disk (BA2 unpacked).
+Reusable: add an entry to MODS and run `python headgear_patch.py <tag>`. Needs
+the source mod's meshes already extracted to disk (BA2 unpacked).
 """
 import os, sys, struct, csv
 sys.path.insert(0, r"C:\Modding\xEditDev\furrifier_fo4\src")
@@ -25,22 +25,61 @@ from furrifier_fo4.furrify import apply_furry
 from furrifier_fo4.facegen import build_facegen_for_patch
 from furrifier_fo4.models import Sex
 
-# ---------------- CONFIG (per source mod) ----------------
-MOD_ESP = "Eli_Armour_Compendium.esp"
-EAC_DIR = r"C:\Modding\FalloutAssets\EAC Assets"      # extracted source meshes
+# ---------------- CONFIG ----------------
+VANILLA_DIR = r"C:\Modding\FalloutAssets\00 FO4 Assets"
+FFO_ASSETS = r"C:\Users\hughr\AppData\Roaming\Vortex\fallout4\mods\Furry Fallout Assets"
 FFO_ESP = "FurryFallout.esp"
 OUT = r"C:\Users\hughr\AppData\Roaming\Vortex\fallout4\mods\Sandbox"
-PATCH_NAME = "FFO_EAC_Patch.esp"
-TEST_NAME = "FFO_EAC_Patch_TEST.esp"
-VANILLA_REF = r"C:\Modding\FalloutAssets\00 FO4 Assets\Meshes\Clothes\BaseballUniform\MHat.nif"
-FURRY_REF = r"C:\Users\hughr\AppData\Roaming\Vortex\fallout4\mods\Furry Fallout Assets\Meshes\FFO\Clothes\BaseballUniform\MHat.nif"
+VANILLA_REF = os.path.join(VANILLA_DIR, r"Meshes\Clothes\BaseballUniform\MHat.nif")
+FURRY_REF = os.path.join(FFO_ASSETS, r"Meshes\FFO\Clothes\BaseballUniform\MHat.nif")
 SCHEME = "ffo_scheme"
 FACEGEN_HEAD_SLOT = 32                                 # BOD2 bit -> "replaces whole head"
+
+# Per source mod. `assets` are searched in order for a nif referenced by an
+# ARMA; list the mod's own extracted meshes first, vanilla last (mods routinely
+# re-use vanilla headgear meshes under their own ARMA/ARMO records).
+MODS = {
+    "eac": dict(
+        tag="eac",
+        esp="Eli_Armour_Compendium.esp",
+        assets=[r"C:\Modding\FalloutAssets\EAC Assets", VANILLA_DIR],
+    ),
+    "ar2": dict(
+        tag="ar2",
+        esp="AmericaRising2.esm",
+        assets=[r"C:\Modding\FalloutAssets\America Rising 2", VANILLA_DIR],
+    ),
+}
+MOD = MODS[sys.argv[1] if len(sys.argv) > 1 else "eac"]
+MOD_ESP = MOD["esp"]
+TAG = MOD["tag"]
+PATCH_NAME = f"FFO_{TAG.upper()}_Patch.esp"
+TEST_NAME = f"FFO_{TAG.upper()}_Patch_TEST.esp"
 
 
 def norm(p):
     p = (p or "").replace("/", "\\").lower().lstrip("\\")
     return p[7:] if p.startswith("meshes\\") else p
+
+
+def find_mesh(rel):
+    """Absolute path of a nif (relative to meshes\\) in the mod's asset roots."""
+    for root in MOD["assets"]:
+        p = os.path.join(root, "meshes", rel)
+        if os.path.exists(p):
+            return p
+    return os.path.join(MOD["assets"][0], "meshes", rel)
+
+
+def ffo_existing(rel):
+    """Absolute path of an already-shipped FFO version of `rel`, or None.
+
+    FFO ships furry-fitted copies of the vanilla headgear it covers; when a mod
+    re-uses one of those vanilla meshes we point the patched ARMA at FFO's copy
+    instead of repositioning our own duplicate.
+    """
+    p = os.path.join(FFO_ASSETS, "Meshes", "FFO", rel)
+    return p if os.path.exists(p) else None
 
 
 def slots(bod2):
@@ -60,14 +99,21 @@ def head_offset():
 
 
 def is_headpart_nif(path):
-    """True if any shape is a head-slot piece (HEAD-skinned BSSubIndexTriShape,
-    has .ssf, segments only {0,1}). EAC bundles goggles sub-shapes (segs 0-3),
-    so this is per-shape."""
+    """True if any shape is a head-slot piece. Two accepted shapes: a segmented
+    BSSubIndexTriShape (.ssf, segments only {0,1}) skinned to HEAD, or a shape
+    skinned to NOTHING BUT head bones — some mods ship hats as a plain
+    BSTriShape weighted to HEAD alone, with no segment file at all. EAC bundles
+    goggles sub-shapes (segs 0-3), so this is per-shape."""
     try:
         nif = NifFile(path)
     except Exception:
         return False
     for sh in nif.shapes:
+        bones = list(sh.bone_names or [])
+        if not bones:
+            continue
+        if all(b.upper().startswith("HEAD") for b in bones):
+            return True
         if sh.blockname != "BSSubIndexTriShape":
             continue
         segs = [s.index for s in sh.partitions if type(s).__name__ == "FO4Segment"]
@@ -76,7 +122,7 @@ def is_headpart_nif(path):
         except Exception:
             ssf = ""
         if ssf and segs and max(segs) <= 1 and any(
-                b.upper().startswith("HEAD") for b in (sh.bone_names or [])):
+                b.upper().startswith("HEAD") for b in bones):
             return True
     return False
 
@@ -124,6 +170,7 @@ def main():
     world = FurryWorld(SCHEME, plugins=plugins)
     ps = world.ps
     eac = ps.get_plugin(MOD_ESP)
+    print(f"source mod: {MOD_ESP}")
     ffo = ps.get_plugin(FFO_ESP)
     f4 = ps.get_plugin("Fallout4.esm")
 
@@ -137,7 +184,8 @@ def main():
     # --- find target ARMOs: addon ARMA whose nif is a headpart, slot != FaceGen ---
     targets = []          # (armo, head_arma, [(slot_tuple)], full_head)
     csv_rows = []
-    repositioned = set()  # normalized vanilla rel paths already done
+    repositioned = set()  # normalized vanilla rel paths we repositioned ourselves
+    reused = {}           # rel paths served by a mesh FFO already ships
     for o in eac.get_records_by_signature("ARMO"):
         addons = [eac_arma.get(m.get_form_id().value) for m in o.get_subrecords("MODL")]
         addons = [a for a in addons if a]
@@ -146,7 +194,7 @@ def main():
         head_arma = None
         for a in addons:
             m2 = modelof(a["MOD2"]) or modelof(a["MOD3"])
-            if m2 and is_headpart_nif(os.path.join(EAC_DIR, "meshes", norm(m2))):
+            if m2 and is_headpart_nif(find_mesh(norm(m2))):
                 head_arma = a
                 break
         if head_arma is None:
@@ -157,11 +205,13 @@ def main():
         nifs = [norm(n) for n in nifs if n]
         if not full:
             for rel in nifs:
-                if rel in repositioned:
+                if rel in repositioned or reused.get(rel):
                     continue
-                src = os.path.join(EAC_DIR, "meshes", rel)
+                if ffo_existing(rel):
+                    reused[rel] = True
+                    continue
                 dst = os.path.join(OUT, "Meshes", "FFO", rel)
-                reposition(src, dst, off)
+                reposition(find_mesh(rel), dst, off)
                 repositioned.add(rel)
             targets.append((o, head_arma, sl, nifs))
         csv_rows.append({
@@ -171,9 +221,13 @@ def main():
             "full_head": "Y" if full else "N",
             "vanilla_nif_M": "meshes\\" + nifs[0] if nifs else "",
             "furry_nif_M": "" if full else ("meshes\\FFO\\" + nifs[0] if nifs else ""),
-            "action": "skip (full head)" if full else "repositioned + ARMA patched",
+            "action": ("skip (full head)" if full else
+                       "reused FFO mesh + ARMA patched"
+                       if nifs and reused.get(nifs[0]) else
+                       "repositioned + ARMA patched"),
         })
-    print(f"targets: {len(targets)} ARMOs; repositioned {len(repositioned)} nifs")
+    print(f"targets: {len(targets)} ARMOs; repositioned {len(repositioned)} nifs, "
+          f"reused {len(reused)} FFO meshes")
 
     # --- patch plugin ---
     patch = Plugin.new_plugin(os.path.join(OUT, PATCH_NAME), masters=[], game="fo4")
@@ -211,12 +265,12 @@ def main():
     # --- CSV ---
     cols = ["ARMO", "ARMO_formid", "ARMA", "ARMA_formid", "BOD2_slots", "full_head",
             "vanilla_nif_M", "furry_nif_M", "new_ARMA", "races", "offset", "action"]
-    with open(os.path.join(OUT, "eac_headgear.csv"), "w", newline="", encoding="utf-8") as fh:
+    with open(os.path.join(OUT, f"{TAG}_headgear.csv"), "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=cols)
         w.writeheader()
         for r in sorted(csv_rows, key=lambda r: (r["full_head"], r["ARMO"])):
             w.writerow({c: r.get(c, "") for c in cols})
-    print("wrote eac_headgear.csv")
+    print(f"wrote {TAG}_headgear.csv")
 
     # --- test plugin: one furrified NPC per target ARMO, rotated races ---
     def find_base(female):
@@ -249,17 +303,17 @@ def main():
         base = base_f if female else base_m
         # outfit -> this ARMO
         otft = Record("OTFT", FormID(0), 0); otft.plugin = test
-        otft.add_subrecord("EDID").set_string(f"EAC_Test_{o.editor_id}_OTFT")
+        otft.add_subrecord("EDID").set_string(f"{TAG.upper()}_Test_{o.editor_id}_OTFT")
         inam = otft.add_subrecord("INAM", b"\x00\x00\x00\x00")
         test.add_record(otft)
         test.write_form_id(inam, 0, o.normalize_form_id(o.form_id))
         npc = test.copy_record(base, f4, new_form_id=True)
-        npc.editor_id = f"EAC_Test_{o.editor_id}_{race_edid.replace('FFO','').replace('Race','')}"
+        npc.editor_id = f"{TAG.upper()}_Test_{o.editor_id}_{race_edid.replace('FFO','').replace('Race','')}"
         apply_furry(test, npc, furry_race, race_edid=race_edid,
                     sex=Sex.FEMALE if female else Sex.MALE, signature=npc.editor_id,
                     headpart_pools=world.headpart_pools, race_tints=world.race_tints,
                     customization=world.cust, race_morphs=world.race_morphs,
-                    bone_regions=world.bone_regions, breed_signature=npc.editor_id)
+                    breed_signature=npc.editor_id)
         doft = npc.get_subrecord("DOFT") or npc.add_subrecord("DOFT", b"\x00\x00\x00\x00")
         test.write_form_id(doft, 0, test.normalize_form_id(otft.form_id))
         placeatme.append((npc.editor_id, npc.form_id.value & 0xFFFFFF))
@@ -277,11 +331,11 @@ def main():
         race_morphs=world.race_morphs, bone_regions=world.bone_regions)
     print("facegen:", fg)
 
-    with open(os.path.join(OUT, "eac.txt"), "w") as fh:
+    with open(os.path.join(OUT, f"{TAG}.txt"), "w") as fh:
         fh.write(f"; Replace XX with {TEST_NAME}'s load-order index.\n")
         for edid, obj in placeatme:
             fh.write(f"player.placeatme XX{obj:06X} 1\n")
-    print("wrote eac.txt")
+    print(f"wrote {TAG}.txt")
 
 
 if __name__ == "__main__":

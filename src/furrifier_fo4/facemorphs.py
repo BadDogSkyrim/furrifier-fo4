@@ -24,7 +24,6 @@ import json
 import logging
 import struct
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Optional
 
 from esplib import Record
@@ -276,59 +275,53 @@ _REGIONS_SUBDIR = ("Meshes", "Actors", "Character", "CharacterAssets")
 
 
 class FacialBoneRegions:
-    """Lazily reads `<raceEDID>FacialBoneRegions<Sex>.txt` (JSON) from the data
-    dir, exposing each region's `AssociatedMorphGroup` (by name) and its bones
-    with their Minima/Maxima transforms (by the region's numeric `ID`, which
-    equals the RACE Face Morph `FMRI` index — so a baked NPC's FMRI/FMRS records
-    map straight to the bones the facebone bake deforms)."""
+    """Lazily reads `<raceEDID>FacialBoneRegions<Sex>.txt` (JSON), exposing each
+    region's bones with their Minima/Maxima transforms (keyed by the region's
+    numeric `ID`, which equals the RACE Face Morph `FMRI` index — so a baked
+    NPC's FMRI/FMRS records map straight to the bones the facebone bake deforms).
 
-    def __init__(self, data_dir, fallback_dir=None):
-        # Region JSON search roots, data_dir first then optional fallback (the
-        # real game Data), so an override dir need only carry pinned assets.
-        self._bases = [Path(data_dir).joinpath(*_REGIONS_SUBDIR)]
-        if fallback_dir is not None:
-            self._bases.append(Path(fallback_dir).joinpath(*_REGIONS_SUBDIR))
-        # (race, sex) -> (by_name: {name: region}, by_id: {id: region})
+    The file is resolved through the same archive-aware `AssetResolver` the
+    facegen bake uses for nifs and textures: FO4 ships these region files packed
+    inside BA2s, so a loose-only reader would miss them for most installs."""
+
+    def __init__(self, resolver):
+        # `resolver.resolve(data_relative_path)` -> a concrete on-disk path
+        # (loose first, then extracted from a BA2/BSA), or None.
+        self._resolver = resolver
+        # (race, sex) -> {id: region-json}
         self._cache: dict = {}
 
-    def _load(self, race_edid: str, sex: Sex):
+    def _load(self, race_edid: str, sex: Sex) -> dict:
         key = (race_edid, sex)
         if key in self._cache:
             return self._cache[key]
         suffix = "Male" if sex == Sex.MALE else "Female"
         fname = f"{race_edid}FacialBoneRegions{suffix}.txt"
-        path = next((b / fname for b in self._bases if (b / fname).exists()),
-                    self._bases[0] / fname)
-        by_name: dict = {}
+        relpath = "\\".join((*_REGIONS_SUBDIR, fname))
         by_id: dict = {}
+        path = self._resolver.resolve(relpath) if self._resolver else None
+        if path is None:
+            log.debug("no FacialBoneRegions for %s %s (%s)", race_edid, suffix,
+                      relpath)
+            self._cache[key] = by_id
+            return by_id
         try:
             with open(path, "rb") as f:
                 regions = json.load(f)
             for r in regions:
-                name = (r.get("Name") or "").lower()
-                if name:
-                    by_name.setdefault(name, r)   # first wins on dup names
                 rid = r.get("ID")
                 if rid is not None:
                     by_id.setdefault(int(rid), r)
-        except FileNotFoundError:
-            log.debug("no FacialBoneRegions for %s %s (%s)", race_edid, suffix,
-                      path)
         except (ValueError, OSError) as exc:
             log.warning("FacialBoneRegions %s: %s", path, exc)
-        self._cache[key] = (by_name, by_id)
-        return self._cache[key]
-
-    def associated_group(self, race_edid: str, sex: Sex,
-                         region_name: str) -> Optional[str]:
-        region = self._load(race_edid, sex)[0].get(region_name.lower())
-        return region.get("AssociatedMorphGroup") if region else None
+        self._cache[key] = by_id
+        return by_id
 
     def bones_for_fmri(self, race_edid: str, sex: Sex, fmri: int) -> list:
         """[(bone_name, minima, maxima)] for the region whose ID == `fmri`
         (minima/maxima are the JSON Position/Rotation/Scale dicts at slider
         -1/+1). Empty if the region or file is missing. Covers BonesA + BonesB."""
-        region = self._load(race_edid, sex)[1].get(int(fmri))
+        region = self._load(race_edid, sex).get(int(fmri))
         if region is None:
             return []
         out = []
@@ -352,8 +345,7 @@ def _pack_fmrs(region: RegionMorph) -> bytes:
 
 
 def apply_facemorphs(patch, ov: Record, race_edid: str, sex: Sex,
-                     spec: Optional[FaceMorphSpec], race_morphs: RaceMorphs,
-                     bone_regions: Optional[FacialBoneRegions] = None) -> int:
+                     spec: Optional[FaceMorphSpec], race_morphs: RaceMorphs) -> int:
     """Write a race/breed's face morphs onto a furrified NPC override `ov`:
     FMRI/FMRS region transforms + MSDK/MSDV morph-group presets. Returns the
     number of morph entries written. No-op when `spec` is None.
@@ -401,9 +393,12 @@ def apply_facemorphs(patch, ov: Record, race_edid: str, sex: Sex,
                 ov.add_subrecord("FMRS", _pack_fmrs(region))
                 written += 1
         for preset, weight in region.presets:
-            group = (bone_regions.associated_group(race_edid, sex, region.name)
-                     if bone_regions is not None else None)
-            add_preset(group, preset, weight, f"{race_edid}/{region.name}")
+            # The region key doubles as the morph-group name: FFO names each
+            # morphable region's group after the region (Eyes, Nostrils, Nose
+            # Shape…), so the preset resolves straight from the RACE record —
+            # no external region->group asset. add_preset warns if the key
+            # isn't a group / doesn't hold the preset.
+            add_preset(region.name, preset, weight, f"{race_edid}/{region.name}")
 
     # Explicit morph-group presets.
     for g in spec.groups:

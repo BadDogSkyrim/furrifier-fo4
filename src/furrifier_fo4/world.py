@@ -143,15 +143,18 @@ class FurryWorld:
             self.ps, exclude=self.scheme.exclude_headparts)
         self.race_tints = RaceTints(self.ps)
         self.race_morphs = RaceMorphs(self.ps)
-        self.bone_regions = FacialBoneRegions(self.data, self.fallback)
+        # AssetResolver does loose-then-archive lookup (its BA2 scan is the
+        # expensive index). Built before bone_regions because FacialBoneRegions
+        # reads its region files through it — FFO ships them packed in BA2s.
+        self.resolver = AssetResolver.for_data_dir(self.data, self.fallback)
+        self.bone_regions = FacialBoneRegions(self.resolver)
 
         # Validate the catalog against the real race data now that both are
         # loaded — warns (with name suggestions) on facemorph presets/regions
         # and tint colors a race doesn't actually offer, instead of leaving them
         # to silently drop at bake time. See validate.py.
         from .validate import validate_customization
-        validate_customization(self.cust, self.race_morphs, self.race_tints,
-                               self.bone_regions)
+        validate_customization(self.cust, self.race_morphs, self.race_tints)
 
         self.races_by_edid: dict = {}
         for plugin in self.ps:
@@ -159,9 +162,8 @@ class FurryWorld:
                 if r.editor_id:
                     self.races_by_edid[r.editor_id] = r
 
-        # Facegen indexes (the AssetResolver BA2 scan is the expensive one).
+        # Facegen indexes (the AssetResolver BA2 scan above is the expensive one).
         self.tint_templates = RaceTintTemplates(self.ps)
-        self.resolver = AssetResolver.for_data_dir(self.data, self.fallback)
         self.base_heads = BaseHeadTextures(self.headpart_pools, self.resolver,
                                            races_by_edid=self.races_by_edid)
 

@@ -16,16 +16,17 @@ from typing import Optional
 from .config import FurrifierConfig, build_parser, normalize_argv, setup_logging
 from . import session
 from .session import ProgressCallback, CancelledError
+from ._version import __version__
 
 log = logging.getLogger(__name__)
 
 
-def run_furrification(
-        config: FurrifierConfig,
-        world=None,
-        progress: Optional[ProgressCallback] = None,
-        cancel_event: Optional[threading.Event] = None) -> int:
-    log.info("Fallout 4 Furrifier")
+def log_run_header(config: FurrifierConfig) -> None:
+    """The run banner (tool version + key settings). Emitted first so a captured
+    log always opens with it, before any world-load/validation output. The CLI
+    path logs it from run_furrification; callers that pre-build the world (the
+    GUI worker) call this themselves first, before the build."""
+    log.info("Fallout 4 Furrifier %s", __version__)
     log.info("  Scheme:        %s", config.race_scheme)
     log.info("  Patch:         %s", config.patch_filename)
     log.info("  Build FaceGen: %s", config.build_facegen)
@@ -33,6 +34,18 @@ def run_furrification(
         log.info("  Only factions: %s", ", ".join(config.only_faction))
     if config.limit is not None:
         log.info("  Limit:         %d", config.limit)
+
+
+def run_furrification(
+        config: FurrifierConfig,
+        world=None,
+        progress: Optional[ProgressCallback] = None,
+        cancel_event: Optional[threading.Event] = None) -> int:
+    # Banner first — but only when we build the world here (the CLI passes
+    # world=None). A caller that pre-builds the world (the GUI worker) has
+    # already logged the header, so its world-load output stays below it.
+    if world is None:
+        log_run_header(config)
 
     t0 = time.perf_counter()
     try:

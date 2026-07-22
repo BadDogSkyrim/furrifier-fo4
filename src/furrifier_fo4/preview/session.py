@@ -315,7 +315,7 @@ class PreviewSession:
                             race_tints=self.race_tints, customization=self.cust,
                             breed_name=breed_name,
                             race_morphs=self.race_morphs,
-                            bone_regions=self.bone_regions, minimal=is_child)
+                            minimal=is_child)
                 override = target
             else:
                 override = furrify_npc(patch, target, furry_race,
@@ -326,7 +326,6 @@ class PreviewSession:
                                        customization=self.cust,
                                        breed_name=breed_name,
                                        race_morphs=self.race_morphs,
-                                       bone_regions=self.bone_regions,
                                        minimal=is_child)
             display_edid = npc.editor_id or f"{objid:08X}"
 

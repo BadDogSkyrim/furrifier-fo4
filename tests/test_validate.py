@@ -86,6 +86,55 @@ def test_facemorph_all_good_no_warnings():
     assert validate_customization(c, morphs, FakeTints()) == []
 
 
+def _deer_region_cust(region='Nostrils', preset='Broad'):
+    """A breed whose facemorph uses the region-table form (`{preset = w}`),
+    where the region key doubles as the morph-group name."""
+    c = Customization()
+    c.set_breed('ElkMoose', 'FFODeerRace', 1.0)
+    c.facemorphs['ElkMoose'] = parse_facemorphs(
+        [{region: {preset: 0.8}}], 'ElkMoose')
+    c.facemorph_refs['ElkMoose'] = 'ElkMoose'
+    return c
+
+
+def test_region_preset_resolves_as_group_name():
+    # 'Nostrils' is both a region and a morph group (FFO names them alike), so
+    # its preset resolves from the race record with no external asset -> no warn.
+    c = _deer_region_cust('Nostrils', 'Broad')
+    morphs = FakeMorphs(groups={
+        ('FFODeerRace', Sex.MALE): {'nostrils': ['broad']},
+        ('FFODeerRace', Sex.FEMALE): {'nostrils': ['broad']},
+    })
+    assert validate_customization(c, morphs, FakeTints()) == []
+
+
+def test_region_preset_keyed_on_wrong_group_points_at_owning_group():
+    # 'Roman Nose' lives in group 'nose shape', but the entry is keyed on the
+    # region 'Nose - Bridge' — the warning names the group that actually holds it.
+    c = _deer_region_cust('Nose - Bridge', 'Roman Nose')
+    morphs = FakeMorphs(groups={
+        ('FFODeerRace', Sex.MALE): {'nose shape': ['roman nose'], 'nostrils': []},
+        ('FFODeerRace', Sex.FEMALE): {'nose shape': ['roman nose'], 'nostrils': []},
+    })
+    warns = validate_customization(c, morphs, FakeTints())
+    assert len(warns) == 2
+    assert all("preset 'Roman Nose' is in group 'nose shape', not "
+               "'Nose - Bridge'" in w for w in warns)
+
+
+def test_region_preset_unknown_warns_does_not_exist():
+    # A preset that exists in no group at all -> "does not exist" + a suggestion.
+    c = _deer_region_cust('Nostrils', 'Braod')     # typo of 'Broad'
+    morphs = FakeMorphs(groups={
+        ('FFODeerRace', Sex.MALE): {'nostrils': ['broad']},
+        ('FFODeerRace', Sex.FEMALE): {'nostrils': ['broad']},
+    })
+    warns = validate_customization(c, morphs, FakeTints())
+    assert len(warns) == 2
+    assert all("preset 'Braod' does not exist for FFODeerRace" in w
+               and "did you mean 'broad'?" in w for w in warns)
+
+
 def test_tint_color_not_offered():
     c = Customization()
     c.set_breed('FennecBreed', 'FFOFoxRace', 1.0)

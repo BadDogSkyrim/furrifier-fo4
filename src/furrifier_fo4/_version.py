@@ -6,4 +6,4 @@ edited by hand. The version is stamped into each generated plugin's TES4 author
 (see session.run) so a patch records exactly which build produced it.
 """
 
-__version__ = "1.0.1"
+__version__ = "1.1.1"

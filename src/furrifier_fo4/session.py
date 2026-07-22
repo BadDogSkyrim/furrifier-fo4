@@ -53,6 +53,23 @@ _ESL_FIRST_OBJECT_ID = 0x800
 ESL_MAX_NEW_RECORDS = 0x1000 - _ESL_FIRST_OBJECT_ID   # 2048
 
 
+# Story-critical Fallout4.esm NPC_ records the furrifier must never touch: the
+# player, Shaun (all his forms), and both player-spouse presets. The FFO-Player-*
+# plugins set the player's race themselves; furrifying these would clobber that
+# and mangle the intro/family scenes. Keyed by load-order-normalized FormID —
+# Fallout4.esm is always load-order index 0, so its records normalize to their
+# raw 0x00xxxxxx FormID (see world._winning_key / build_winning).
+STORY_PROTECTED_FORM_IDS = frozenset({
+    0x00000007,   # Player
+    0x0002A19A,   # Shaun
+    0x000570C3,   # ShaunChild
+    0x000A7D34,   # MQ101PlayerSpouseMale
+    0x000A7D35,   # MQ101PlayerSpouseFemale
+    0x000D84E8,   # MQ203MemoryH_Shaun
+    0x001844A6,   # ShaunChildHologram
+})
+
+
 def esl_new_record_count(patch) -> int:
     """How many NEW records `patch` has minted (overrides excluded)."""
     return patch.header.next_object_id - _ESL_FIRST_OBJECT_ID
@@ -187,7 +204,7 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
              'no_child_race': 0, 'preserved': 0, 'armas_patched': 0,
              'templated': 0, 'owner_furrified': 0, 'minimal_children': 0,
              'expanded_owners': 0, 'variants': 0, 'race_counts': {},
-             'esl': False, 'new_records': 0, 'packed': []}
+             'story_protected': 0, 'esl': False, 'new_records': 0, 'packed': []}
     # ghoul vanilla race EDID -> furry target race name, filled during the run.
     ghoul_targets: dict[str, str] = {}
 
@@ -227,7 +244,7 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
                     headpart_pools=headpart_pools, race_tints=race_tints,
                     customization=cust,
                     breed_name=(breed.name if breed else None),
-                    race_morphs=race_morphs, bone_regions=bone_regions,
+                    race_morphs=race_morphs,
                     minimal=is_child)
         if is_child:
             stats['minimal_children'] += 1
@@ -257,7 +274,7 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
                     signature=signature, headpart_pools=headpart_pools,
                     race_tints=race_tints, customization=cust,
                     breed_name=(breed.name if breed else None),
-                    race_morphs=race_morphs, bone_regions=bone_regions,
+                    race_morphs=race_morphs,
                     minimal=is_child)
         if is_child:
             stats['minimal_children'] += 1
@@ -317,6 +334,13 @@ def run(scheme_name: str, patch_name: str = "FO4FurryPatch.esp",
         if stats['total'] % 64 == 0:
             emit("Furrifying NPCs", stats['total'], total_npcs)
         objid = npc.normalize_form_id(npc.form_id).value
+        # Story-critical records (player/Shaun/spouses) are owned by the
+        # FFO-Player-* plugins — never furrify them. Mark done so the owner pass
+        # skips them too.
+        if objid in STORY_PROTECTED_FORM_IDS:
+            stats['story_protected'] += 1
+            done.add(objid)
+            continue
         if objid in done:               # injection node already overridden
             continue
         # Preserve mode: an NPC already furrified by an earlier run (its absolute

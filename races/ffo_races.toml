@@ -110,16 +110,19 @@ Nose = [["FFOFaceFleshBlack", 0.9], ["FFOFaceFleshBlack", 0.7], ["FFOFaceFleshBl
 # Facemorphs define how to use the race's morphs. Unlike tints, morphs are never used
 # unless defined here. It's too easy to create mostrosities.
 #
-# Setting good values is a PITA. Best is to design the look in Creation Kit and read the
-# values from there. 
+# Setting good values for bone morphs is a PITA. Best is to design the look in Creation
+# Kit and read the values from there. 
 [[facemorphs.Dikdik]]
 
 # A face part can be moved by setting position and scale. The value is the value of the
-# morph slider, which always runs from -1 to 1.
+# morph slider, which always runs from -1 to 1. When you're adjusting bone morphs, you
+# reference the region (as shown in Creation Kit).
 "Ears" = {position=[-0.2, 0, 0], scale=-0.5}
 "Nose - Full" = {position=[0.0, 0.3, -1], scale=-0.4}
 
-# Named morphs can be referenced directly ("Slanted" eyes), and given a strength (0..1).
+# Morph groups are used when referencing a specific morph ("Slanted" eyes). Here both
+# region and morph group are called "Eyes" so one line serves for both. Morph groups are
+# given a strength (0..1).
 "Eyes" = {position=[-0.4, -0.2, 0], scale=0.2, Slanted=0.75}
 "Nose - Bridge" = {position=[0, -0.7, -0.2]}
 
@@ -151,8 +154,10 @@ Nose = [["FFOFaceFleshBlack", 0.9], ["FFOFaceFleshBlack", 0.7], ["FFOFaceFleshBl
 
 [[facemorphs.ElkMoose]]
 "Nose - Full" = { position = [0.0, 0.4, -0.5] }
+# Nostrils are a morph group with no bone associated.
 "Nostrils" = {"Broad" = 0.8}
-"Nose - Bridge" = {"Roman Nose" = 0.6}
+# Nose shape is a morph group associated with the "Nose - Bridge" region. 
+"Nose Shape" = {"Roman Nose" = 0.6}
 
 # Males and females can be customized separately. For elk & moose, females have no horns.
 [[race_customization]]
@@ -256,7 +261,7 @@ Nose = [["FFOFaceFleshBlack", 0.9], ["FFOFaceFleshBlack", 0.7], ["FFOFaceFleshBl
 [[facemorphs.Reindeer]]
 "Nose - Full" = { position = [0.0, 0.4, -0.5] }
 Nostrils = {"Broad" = 0.8}
-"Nose - Bridge" = {"Roman Nose" = 0.6}
+"Nose Shape" = {"Roman Nose" = 0.6}
 
 [[race_customization]]
 race = "ReindeerBreed"
@@ -282,7 +287,7 @@ Nose = [["FFOFaceFleshBlack", 0.9], ["FFOFaceFleshBlack", 0.7], ["FFOFaceFleshBl
 "Ears" = {position=[0, 1, 0], scale=0.9}
 "Eyes" = {position=[-0.2, -0.2, 0], scale=0.25, Slanted=0.8}
 "Nose - Full" = {position=[0, 0.6, -0.7], scale=0.2}
-"Nose - Bridge" = {"Dish Face" = 0.5}
+"Nose Shape" = {"Dish Face" = 0.5}
 
 [[race_customization]]
 race = "WhiteTailBreed"
@@ -319,7 +324,7 @@ Ears = [["probability", 1.0]]
 
 [[facemorphs.RedFox]]
 sex = "female"
-"Nose - Full" = { "Small Nose Tip" = 0.25 }
+"Nose" = { "Small Nose Tip" = 0.25 }
 
 [[race_customization]]
 race = "FFOFoxRace"
@@ -336,12 +341,14 @@ Ears = [["probability", 0.5], ["FFOFurBlack", 0.5], ["FFOFurBlack", 0.3], ["FFOF
 [[facemorphs.Fennec]]
 sex = "male"
 "Ears - Full" = { position = [0.0, 0.7, 1], scale = 0.8 }
-"Nose - Full" = { position = [0.0, 0, -0.2], scale = -0.8, "Small Tip" = 0.5 }
+"Nose - Full" = { position = [0.0, 0, -0.2], scale = -0.8 }
+"Nose" = { "Small Tip" = 0.5 }
 
 [[facemorphs.Fennec]]
 sex = "female"
 "Ears - Full" = { position = [0.0, 0.7, 1], scale = 0.8 }
-"Nose - Full" = { position = [0.0, 0, -0.2], scale = -0.8, "Small Nose Tip" = 0.5 }
+"Nose - Full" = { position = [0.0, 0, -0.2], scale = -0.8 }
+"Nose" = { "Small Nose Tip" = 0.5 }
 
 [[race_customization]]
 race = "FennecBreed"
@@ -361,6 +368,8 @@ race = "ManedHorseBreed"
 HAIR = {headpart=["FFO_HairManeFree", "FFO_HairManeRoached", "FFO_HairManeSide02F",
     "FFO_HairManeSide02M", "FFO_HairManeSidehawkF", "FFO_HairManeSidehawkM", 
     "FFO_HairManeSimpleF", "FFO_HairManeSimpleM", "FFO_HairManeTiedF", "FFO_HairManeTiedM", 
+    "FFO_BoyHair01", "FFO_BoyHair02", "FFO_BoyHair03", # Child race uses same headpart list
+    "FFO_GirlHair01", "FFO_GirlHair02", 
     ]}
 
 
@@ -393,7 +402,10 @@ colors = "Lion"
 race = "ManedLion"
 sex  = "male"
 colors = "Lion"
-HAIR = { headpart = ["FFO_HairMaleMane"] }
+HAIR = { headpart = ["FFO_HairMaleMane",
+    "FFO_BoyHair01", "FFO_BoyHair02", "FFO_BoyHair03", # Child race uses same headpart list
+    "FFO_GirlHair01", "FFO_GirlHair02", 
+    ] }
 
 [[color_schemes.Cougar]]
 Skin_tone = [

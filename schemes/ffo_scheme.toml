@@ -152,6 +152,24 @@ races = [
 ]
 
 [[class_probabilities]]
+class = "CLASS_SYNTHCOURSER"
+races = [
+  ["FFOLykaiosRace", 30],
+  ["FFOFoxRace", 30],
+  ["FFOHyenaRace", 30],
+  ["FFOLionRace", 30],
+  ["FFOTigerRace", 30],
+  ["FFOCheetahRace", 30],
+]
+
+[[class_probabilities]]
+class = "CLASS_SYNTHGEN3"
+races = [
+  ["FFOHorseRace", 50],
+  ["FFODeerRace", 50],
+]
+
+[[class_probabilities]]
 class = "CLASS_INSTITUTE"
 races = [
   ["FFOLykaiosRace", 30],

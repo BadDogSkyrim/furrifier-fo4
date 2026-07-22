@@ -47,8 +47,7 @@ def _suggest(name: str, valid) -> str:
     return f" (did you mean {m[0]!r}?)" if m else ''
 
 
-def validate_customization(cust, race_morphs, race_tints,
-                           bone_regions=None) -> list:
+def validate_customization(cust, race_morphs, race_tints) -> list:
     """Check every facemorph + color reference in `cust` against the real race
     data. Returns a list of warning strings (each also logged at WARNING)."""
     warnings: list = []
@@ -68,12 +67,12 @@ def validate_customization(cust, race_morphs, race_tints,
         breed = cust.breeds.get(ref)
         return breed.parent_race_edid if breed is not None else ref
 
-    _validate_facemorphs(cust, race_morphs, bone_regions, engine_race, warn)
+    _validate_facemorphs(cust, race_morphs, engine_race, warn)
     _validate_tints(cust, race_tints, engine_race, warn)
     return warnings
 
 
-def _validate_facemorphs(cust, race_morphs, bone_regions, engine_race, warn):
+def _validate_facemorphs(cust, race_morphs, engine_race, warn):
     for ref, spec_name in cust.facemorph_refs.items():
         spec = cust.facemorphs.get(spec_name)
         if spec is None:
@@ -82,8 +81,7 @@ def _validate_facemorphs(cust, race_morphs, bone_regions, engine_race, warn):
         race = engine_race(ref)
         for region in spec.regions:
             for sex in _sexes_for(region.sex):
-                _check_region(spec_name, race, sex, region, race_morphs,
-                              bone_regions, warn)
+                _check_region(spec_name, race, sex, region, race_morphs, warn)
         for g in spec.groups:
             for sex in _sexes_for(g.sex):
                 if race_morphs.mppi_for(race, sex, g.group, g.preset) is None:
@@ -94,7 +92,7 @@ def _validate_facemorphs(cust, race_morphs, bone_regions, engine_race, warn):
                          f"{_suggest(g.preset, presets)}")
 
 
-def _check_region(spec_name, race, sex, region, race_morphs, bone_regions, warn):
+def _check_region(spec_name, race, sex, region, race_morphs, warn):
     if region.has_transform() and \
             race_morphs.fmri_for(race, sex, region.name) is None:
         warn(f"facemorphs {spec_name!r}: {_sx(sex)} region {region.name!r} not "
@@ -102,17 +100,27 @@ def _check_region(spec_name, race, sex, region, race_morphs, bone_regions, warn)
              f"{_suggest(region.name, race_morphs.regions_for(race, sex))}")
     if not region.presets:
         return
-    group = (bone_regions.associated_group(race, sex, region.name)
-             if bone_regions is not None else None)
+    # The region key doubles as the morph-group name — resolve presets straight
+    # from the RACE record (no external region->group asset).
+    group = region.name
+    groups = race_morphs.groups_for(race, sex)
+    all_presets = sorted({p for ps in groups.values() for p in ps})
     for preset, _weight in region.presets:
-        if not group:
-            warn(f"facemorphs {spec_name!r}: region {region.name!r} has no "
-                 f"morph group for {race} ({_sx(sex)}); use the group form "
-                 f'`{region.name} = ["{preset}", w]`')
-        elif race_morphs.mppi_for(race, sex, group, preset) is None:
-            presets = race_morphs.groups_for(race, sex).get(group.lower(), [])
-            warn(f"facemorphs {spec_name!r}: {_sx(sex)} preset {preset!r} not "
-                 f"in group {group!r} for {race}{_suggest(preset, presets)}")
+        if race_morphs.mppi_for(race, sex, group, preset) is not None:
+            continue
+        # Most useful hint: which group actually holds this preset? For the nose
+        # the region name and its group name differ (region 'Nose - Bridge' vs
+        # group 'Nose Shape'), so a preset keyed on the region can't resolve —
+        # name the owning group instead.
+        owning = next((g for g, ps in groups.items()
+                       if preset.lower() in (p.lower() for p in ps)), None)
+        if owning is not None:
+            warn(f"facemorphs {spec_name!r}: {_sx(sex)} preset {preset!r} is in "
+                 f"group {owning!r}, not {group!r}, for {race}; key the entry on "
+                 f"the group name instead")
+        else:
+            warn(f"facemorphs {spec_name!r}: {_sx(sex)} preset {preset!r} does "
+                 f"not exist for {race}{_suggest(preset, all_presets)}")
 
 
 def _validate_tints(cust, race_tints, engine_race, warn):

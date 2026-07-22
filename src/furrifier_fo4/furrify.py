@@ -110,7 +110,7 @@ def furrify_npc(patch: Plugin, npc: Record, furry_race: Record,
                 race_edid: str = None, sex=None, signature: str = None,
                 headpart_pools=None, race_tints=None,
                 customization=None, breed_name: str = None,
-                race_morphs=None, bone_regions=None,
+                race_morphs=None,
                 minimal: bool = False, breed_signature: str = None) -> Record:
     """Create a furrified override of `npc` in `patch`, assigned to
     `furry_race`. Returns the new override record.
@@ -130,7 +130,7 @@ def furrify_npc(patch: Plugin, npc: Record, furry_race: Record,
                 signature=signature, headpart_pools=headpart_pools,
                 race_tints=race_tints, customization=customization,
                 breed_name=breed_name, race_morphs=race_morphs,
-                bone_regions=bone_regions, minimal=minimal,
+                minimal=minimal,
                 breed_signature=breed_signature)
     return ov
 
@@ -139,7 +139,7 @@ def apply_furry(patch: Plugin, ov: Record, furry_race: Record,
                 race_edid: str = None, sex=None, signature: str = None,
                 headpart_pools=None, race_tints=None,
                 customization=None, breed_name: str = None,
-                race_morphs=None, bone_regions=None,
+                race_morphs=None,
                 minimal: bool = False, breed_signature: str = None) -> Record:
     """Apply the furry appearance (race + skin + per-NPC headparts/tints/weight)
     to an EXISTING patch record `ov`, in place. `furrify_npc` calls this after
@@ -268,7 +268,7 @@ def apply_furry(patch: Plugin, ov: Record, furry_race: Record,
         if morph_spec is not None:
             from .facemorphs import apply_facemorphs
             apply_facemorphs(patch, ov, race_edid, sex, morph_spec,
-                             race_morphs, bone_regions)
+                             race_morphs)
 
     ov.modified = True
     return ov
