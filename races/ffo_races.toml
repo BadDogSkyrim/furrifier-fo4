@@ -31,7 +31,8 @@ hair_variant_prefix = "FFO_"
 "Skin Tone"         = ["Skin tone"]
 Mask                = ["Face Mask *", "Face Plate", "Mask", "Eye Stripe", "Eye Tear", "White Face"]
 Muzzle              = ["Muzzle", "Muzzle Small", "Cougar White"]
-Muzzle_Stripe       = ["Muzzle Stripe", "Muzzle Upper", "Muzzle Side", "Mouche", "Nose Stripe*", "Cougar *"]
+Muzzle_Stripe = ["Muzzle Stripe", "Muzzle Upper", "Muzzle Side", "Mouche", "Nose Stripe*",
+    "Cougar *"]
 Cougar_Stripe       = ["Cougar 01", "Cougar 02", ]
 Chin                = ["Chin", "Lower Jaw"]
 Ear                 = ["Ears"]
@@ -92,20 +93,26 @@ breeds = [["DikdikBreed", 0.10],
 [[color_schemes.Dikdik]]
 
 # Colors are constrained by listing the allowed tint colors and alpha values. The colors
-# must be allowed for the tint layer by the race.
-Skin_tone = [["FFOFurBrown", 0.5], ["FFOFurBrownD", 0.3], ["FFOFurBrownL", 0.4], ["FFOFurRedBrown", 0.4]]
+# must be allowed for the tint layer by the race. An alpha can be a [lo, hi] range
+# instead of a single number, and each NPC draws its own alpha from that band --
+# ["FFOFurBrown", [0.4, 0.7]] varies the shade instead of listing the same color
+# several times at fixed alphas.
+Skin_tone = [["FFOFurBrown", [0.4, 0.7]], ["FFOFurBrownD", [0.2, 0.4]], 
+    ["FFOFurBrownL", [0.2, 0.5]], ["FFOFurRedBrown", [0.2, 0.4]]]
 
 # You can set the probability of a layer being applied at all--here, a 70% probability
 # that the Eye_Lower layer is applied. 100% is the default.
-Eye_Lower = [["probability", 0.7], ["FFOFurBlack", 0.5], ["FFOFurBlack", 0.7], ["FFOFurWhite", 0.5], ["FFOFurWhite", 0.3], ["FFOFurTan", 0.6], ["FFOFurTan", 0.4]]
-Eyebrow = [["probability", 0.7], ["FFOFurBlack", 0.5], ["FFOFurBlack", 0.7], 
-    ["FFOFurWhite", 0.5], ["FFOFurWhite", 0.3], ["FFOFurTan", 0.6], ["FFOFurTan", 0.4]]
-Chin = [["FFOFurWhite", 0.3], ["FFOFurWhite", 0.2], ["FFOFurWhite", 0.1], ]
+Eye_Lower = [["probability", 0.7], ["FFOFurBlack", [0.3, 0.7]], ["FFOFurBlack", [0.5, 0.9]],
+    ["FFOFurWhite", [0.3, 0.7]], ["FFOFurWhite", [0.1, 0.5]], ["FFOFurTan", [0.4, 0.8]],
+    ["FFOFurTan", [0.2, 0.6]]]
+Eyebrow = [["probability", 0.7], ["FFOFurBlack", [0.3, 0.7]], ["FFOFurBlack", [0.5, 0.9]], 
+    ["FFOFurWhite", [0.3, 0.7]], ["FFOFurWhite", [0.1, 0.5]], ["FFOFurTan", [0.4, 0.8]], ["FFOFurTan", [0.2, 0.6]]]
+Chin = [["FFOFurWhite", [0.1, 0.5]], ["FFOFurWhite", [0.05, 0.4]], ["FFOFurWhite", [0.05, 0.3]], ]
 
 # `Muzzle` is one of the tint categories defined above. We could also refer to a tint
 # layer by its layer name.
-Muzzle = [["FFOFurBlack", 0.5], ["FFOFurBlack", 0.3], ["FFOFurBlack", 0.1], ]
-Nose = [["FFOFaceFleshBlack", 0.9], ["FFOFaceFleshBlack", 0.7], ["FFOFaceFleshBlack", 0.5], ]
+Muzzle = [["FFOFurBlack", [0.3, 0.7]], ["FFOFurBlack", [0.1, 0.5]], ["FFOFurBlack", [0.05, 0.3]], ]
+Nose = [["FFOFaceFleshBlack", [0.5, 0.9]] ]
 
 # Facemorphs define how to use the race's morphs. Unlike tints, morphs are never used
 # unless defined here. It's too easy to create mostrosities.
@@ -117,13 +124,18 @@ Nose = [["FFOFaceFleshBlack", 0.9], ["FFOFaceFleshBlack", 0.7], ["FFOFaceFleshBl
 # A face part can be moved by setting position and scale. The value is the value of the
 # morph slider, which always runs from -1 to 1. When you're adjusting bone morphs, you
 # reference the region (as shown in Creation Kit).
-"Ears" = {position=[-0.2, 0, 0], scale=-0.5}
-"Nose - Full" = {position=[0.0, 0.3, -1], scale=-0.4}
+#
+# Any of these numbers can be written as a [lo, hi] range instead, and each NPC
+# draws its own value from it -- scale=[0.2, 0.6] gives the race varied snouts
+# rather than one cloned face. Per axis too: position=[[-0.4, -0.1], 0, 0].
+# See races/examples/facemorphs_example.toml.
+"Ears" = {position=[-0.2, 0, 0], scale=[-0.5, -0.3]}
+"Nose - Full" = {position=[0.0, 0.3, -1], scale=[-0.4, -0.2]}
 
 # Morph groups are used when referencing a specific morph ("Slanted" eyes). Here both
 # region and morph group are called "Eyes" so one line serves for both. Morph groups are
 # given a strength (0..1).
-"Eyes" = {position=[-0.4, -0.2, 0], scale=0.2, Slanted=0.75}
+"Eyes" = {position=[-0.4, -0.2, 0], scale=0.2, Slanted=[0.5, 0.75]}
 "Nose - Bridge" = {position=[0, -0.7, -0.2]}
 
 # Once the color scheme and facemorphs are defined, we can use them in defining a breed.
@@ -144,13 +156,20 @@ weight_range = {muscle=[0, 60], fat=[0, 30]}
 # Color schemes and facemorphs can be shared. Elk and moose are generically brown, with
 # similarly-shaped noses and muzzles.
 [[color_schemes.ElkMoose]]
-Skin_tone = [["FFOFurBrown", 0.9], ["FFOFurBrownD", 0.9], ["FFOFurBrown", 0.7], ["FFOFurBrownD", 0.7]]
-Muzzle_Stripe = [["FFOFurBlack", 0.2], ["FFOFurBlack", 0.3], ["FFOFurBlack", 0.1], ["FFOFurBrownD", 0.3]]
-Eye_Lower = [["probability", 0.7], ["FFOFurBlack", 0.5], ["FFOFurBlack", 0.7], ["FFOFurWhite", 0.15], ["FFOFurWhite", 0.3], ["FFOFurTan", 0.3], ["FFOFurTan", 0.4]]
-Eyebrow = [["probability", 0.7], ["FFOFurWhite", 0.7], ["FFOFurWhite", 0.5], ["FFOFurWhite", 0.3], ["FFOFurWhite", 0.1], ["FFOFurTan", 0.3], ["FFOFurTan", 0.4]]
-Mouche = [["FFOFurBlack", 0.9], ["FFOFurBlack", 0.7], ["FFOFurBlack", 0.5], ]
-Muzzle = [["probability", 0.5], ["FFOFurBlack", 0.7], ["FFOFurBlack", 0.5], ["FFOFurBlack", 0.3], ]
-Nose = [["FFOFaceFleshBlack", 0.9], ["FFOFaceFleshBlack", 0.7], ["FFOFaceFleshBlack", 0.5], ]
+Skin_tone = [["FFOFurBrown", [0.7, 0.9]], ["FFOFurBrownD", [0.7, 0.9]],
+    ["FFOFurBrown", [0.5, 0.9]], ["FFOFurBrownD", [0.5, 0.9]]]
+Muzzle_Stripe = [["FFOFurBlack", [0.05, 0.4]], ["FFOFurBlack", [0.1, 0.5]],
+    ["FFOFurBlack", [0.05, 0.3]], ["FFOFurBrownD", [0.1, 0.5]]]
+Eye_Lower = [["probability", 0.7], ["FFOFurBlack", [0.3, 0.7]], ["FFOFurBlack", [0.5, 0.9]],
+    ["FFOFurWhite", [0.05, 0.35]], ["FFOFurWhite", [0.1, 0.5]], ["FFOFurTan", [0.1, 0.5]],
+    ["FFOFurTan", [0.2, 0.6]]]
+Eyebrow = [["probability", 0.7], ["FFOFurWhite", [0.5, 0.9]], ["FFOFurWhite", [0.3, 0.7]],
+    ["FFOFurWhite", [0.1, 0.5]], ["FFOFurWhite", [0.05, 0.3]], ["FFOFurTan", [0.1, 0.5]],
+    ["FFOFurTan", [0.2, 0.6]]]
+Mouche = [["FFOFurBlack", [0.7, 0.9]], ["FFOFurBlack", [0.5, 0.9]], ["FFOFurBlack", [0.3, 0.7]], ]
+Muzzle = [["probability", 0.5], ["FFOFurBlack", [0.5, 0.9]], ["FFOFurBlack", [0.3, 0.7]],
+    ["FFOFurBlack", [0.1, 0.5]]]
+Nose = [["FFOFaceFleshBlack", [0.5, 0.9]] ]
 
 [[facemorphs.ElkMoose]]
 "Nose - Full" = { position = [0.0, 0.4, -0.5] }
@@ -200,17 +219,24 @@ weight_range = {fat=[30, 100], muscle=[30, 100]}
 ### Antelope ###
 
 [[color_schemes.Antelope]]
-Skin_tone = [["FFOFurGinger", 0.9], ["FFOFurGingerD", 0.8], ["FFOFurBrownL", 0.8], ["FFOFurRusset", 0.8],]
-Eye_Lower = [["probability", 0.7], ["FFOFurWhite", 0.7], ["FFOFurWhite", 0.5], ["FFOFurTan", 0.7], ["FFOFurTan", 0.5]]
-Eyebrow = [["probability", 1.0], ["FFOFurWhite", 0.8], ["FFOFurWhite", 0.65]]
-Chin = [["FFOFurWhite", 0.7], ["FFOFurWhite", 0.5], ["FFOFurWhite", 0.3], ]
-Cheek_Color_Lower = [["FFOFurWhite", 0.5], ["FFOFurWhite", 0.3], ["FFOFurWhite", 0.1], ["FFOFurTan", 0.5], ["FFOFurTan", 0.3], ["FFOFurTan", 0.1], ]
+Skin_tone = [["FFOFurGinger", [0.7, 0.9]], ["FFOFurGingerD", [0.6, 0.9]],
+    ["FFOFurBrownL", [0.6, 0.9]], ["FFOFurRusset", [0.6, 0.9]]]
+Eye_Lower = [["probability", 0.7], ["FFOFurWhite", [0.5, 0.9]], ["FFOFurWhite", [0.3, 0.7]],
+    ["FFOFurTan", [0.5, 0.9]], ["FFOFurTan", [0.3, 0.7]]]
+Eyebrow = [["probability", 1.0], ["FFOFurWhite", [0.6, 0.9]], ["FFOFurWhite", [0.45, 0.85]]]
+Chin = [["FFOFurWhite", [0.5, 0.9]], ["FFOFurWhite", [0.3, 0.7]], ["FFOFurWhite", [0.1, 0.5]], ]
+Cheek_Color_Lower = [["FFOFurWhite", [0.3, 0.7]], ["FFOFurWhite", [0.1, 0.5]],
+    ["FFOFurWhite", [0.05, 0.3]], ["FFOFurTan", [0.3, 0.7]], ["FFOFurTan", [0.1, 0.5]],
+    ["FFOFurTan", [0.05, 0.3]]]
 Muzzle_Spot = [["probability", 1.0], 
-    ["FFOFurBlack", 0.9], ["FFOFurBlack", 0.7], ["FFOFurBlack", 0.5], ["FFOFurBlack", 0.3], ]
-Face_Upper = [["probability", 1.0], ["FFOFurWhite", 0.8], ["FFOFurWhite", 0.65]]
-Muzzle = [["probability", 1.0], ["FFOFurWhite", 0.6], ["FFOFurWhite", 0.8], ["FFOFurWhite", 0.4]]
-Gazelle_Eye = [["FFOFurBlack", 0.9], ["FFOFurBlack", 0.7], ["FFOFurBlack", 0.6], ]
-Nose = [["FFOFaceFleshBlack", 0.9], ["FFOFaceFleshBlack", 0.7], ["FFOFaceFleshBlack", 0.5], ]
+    ["FFOFurBlack", [0.7, 0.9]], ["FFOFurBlack", [0.5, 0.9]], ["FFOFurBlack", [0.3, 0.7]], 
+    ["FFOFurBlack", [0.1, 0.5]], ]
+Face_Upper = [["probability", 1.0], ["FFOFurWhite", [0.6, 0.9]], ["FFOFurWhite", [0.45, 0.85]]]
+Muzzle = [["probability", 1.0], ["FFOFurWhite", [0.4, 0.8]], ["FFOFurWhite", [0.6, 0.9]],
+    ["FFOFurWhite", [0.2, 0.6]]]
+Gazelle_Eye = [["FFOFurBlack", [0.7, 0.9]], ["FFOFurBlack", [0.5, 0.9]],
+    ["FFOFurBlack", [0.4, 0.8]]]
+Nose = [["FFOFaceFleshBlack", [0.5, 0.9]]]
 
 [[facemorphs.Antelope]]
 "Cheekbones" = {position=[-0.5, 0, 0]}
@@ -234,11 +260,16 @@ weight_range = {muscle=[0, 60], fat=[0, 30]}
 ### Goat ###
 
 [[color_schemes.Goat]]
-Skin_tone = [["FFOFurGinger", 0.9], ["FFOFurWhite", 0.9], ["FFOFurTan", 0.9], ["FFOFurGinger", 0.7], ["FFOFurWhite", 0.7], ["FFOFurTan", 0.7], ]
-Eye_Lower = [["probability", 0.5], ["FFOFurBlack", 0.5], ["FFOFurBlack", 0.7], ["FFOFurWhite", 0.5], ["FFOFurWhite", 0.3], ["FFOFurTan", 0.6], ["FFOFurTan", 0.4]]
-Eyebrow = [["probability", 0.5], ["FFOFurBlack", 0.5], ["FFOFurBlack", 0.7], ["FFOFurWhite", 0.5], ["FFOFurWhite", 0.3], ["FFOFurTan", 0.6], ["FFOFurTan", 0.4]]
-Chin = [["FFOFurWhite", 0.5], ["FFOFurWhite", 0.3], ["FFOFurWhite", 0.1], ]
-Nose = [["FFOFaceFleshBlack", 0.9], ["FFOFaceFleshBlack", 0.7], ["FFOFaceFleshBlack", 0.5], ]
+Skin_tone = [["FFOFurGinger", [0.7, 0.9]], ["FFOFurWhite", [0.7, 0.9]], ["FFOFurTan", [0.7, 0.9]],
+    ["FFOFurGinger", [0.5, 0.9]], ["FFOFurWhite", [0.5, 0.9]], ["FFOFurTan", [0.5, 0.9]]]
+Eye_Lower = [["probability", 0.5], ["FFOFurBlack", [0.3, 0.7]], ["FFOFurBlack", [0.5, 0.9]],
+    ["FFOFurWhite", [0.3, 0.7]], ["FFOFurWhite", [0.1, 0.5]], ["FFOFurTan", [0.4, 0.8]],
+    ["FFOFurTan", [0.2, 0.6]]]
+Eyebrow = [["probability", 0.5], ["FFOFurBlack", [0.3, 0.7]], ["FFOFurBlack", [0.5, 0.9]],
+    ["FFOFurWhite", [0.3, 0.7]], ["FFOFurWhite", [0.1, 0.5]], ["FFOFurTan", [0.4, 0.8]],
+    ["FFOFurTan", [0.2, 0.6]]]
+Chin = [["FFOFurWhite", [0.3, 0.7]], ["FFOFurWhite", [0.1, 0.5]], ["FFOFurWhite", [0.05, 0.3]], ]
+Nose = [["FFOFaceFleshBlack", [0.5, 0.9]]]
 
 [[race_customization]]
 race = "GoatBreed"
@@ -250,13 +281,22 @@ colors = "Goat"
 ### Reindeer ###
 
 [[color_schemes.Reindeer]]
-Skin_tone = [["FFOFurBrown", 0.9], ["FFOFurBrownD", 0.9], ["FFOFurBrown", 0.7], ["FFOFurBrownD", 0.7], ]
-Muzzle_Stripe = [["FFOFurBlack", 0.3], ["FFOFurBlack", 0.2], ["FFOFurBlack", 0.1], ["FFOFurBrownD", 0.5]]
-Eye_Lower = [["probability", 0.7], ["FFOFurBlack", 0.5], ["FFOFurBlack", 0.7], ["FFOFurWhite", 0.15], ["FFOFurWhite", 0.3], ["FFOFurTan", 0.3], ["FFOFurTan", 0.4]]
-Eyebrow = [["probability", 0.7], ["FFOFurBlack", 0.5], ["FFOFurBlack", 0.7], ["FFOFurWhite", 0.15], ["FFOFurWhite", 0.3], ["FFOFurTan", 0.3], ["FFOFurTan", 0.4]]
-Cheek_Color_Lower = [["FFOFurWhite", 0.5], ["FFOFurWhite", 0.3], ["FFOFurWhite", 0.1], ["FFOFurTan", 0.5], ["FFOFurTan", 0.3], ["FFOFurTan", 0.1], ]
-Mouche = [["probability", 0.5], ["FFOFurBlack", 0.9], ["FFOFurBlack", 0.7], ["FFOFurBlack", 0.5], ]
-Nose = [["FFOFaceFleshBlack", 0.9], ["FFOFaceFleshBlack", 0.7], ["FFOFaceFleshBlack", 0.5], ]
+Skin_tone = [["FFOFurBrown", [0.7, 0.9]], ["FFOFurBrownD", [0.7, 0.9]],
+    ["FFOFurBrown", [0.5, 0.9]], ["FFOFurBrownD", [0.5, 0.9]]]
+Muzzle_Stripe = [["FFOFurBlack", [0.1, 0.5]], ["FFOFurBlack", [0.05, 0.4]],
+    ["FFOFurBlack", [0.05, 0.3]], ["FFOFurBrownD", [0.3, 0.7]]]
+Eye_Lower = [["probability", 0.7], ["FFOFurBlack", [0.3, 0.7]], ["FFOFurBlack", [0.5, 0.9]],
+    ["FFOFurWhite", [0.05, 0.35]], ["FFOFurWhite", [0.1, 0.5]], ["FFOFurTan", [0.1, 0.5]],
+    ["FFOFurTan", [0.2, 0.6]]]
+Eyebrow = [["probability", 0.7], ["FFOFurBlack", [0.3, 0.7]], ["FFOFurBlack", [0.5, 0.9]],
+    ["FFOFurWhite", [0.05, 0.35]], ["FFOFurWhite", [0.1, 0.5]], ["FFOFurTan", [0.1, 0.5]],
+    ["FFOFurTan", [0.2, 0.6]]]
+Cheek_Color_Lower = [["FFOFurWhite", [0.3, 0.7]], ["FFOFurWhite", [0.1, 0.5]],
+    ["FFOFurWhite", [0.05, 0.3]], ["FFOFurTan", [0.3, 0.7]], ["FFOFurTan", [0.1, 0.5]],
+    ["FFOFurTan", [0.05, 0.3]]]
+Mouche = [["probability", 0.5], ["FFOFurBlack", [0.7, 0.9]], ["FFOFurBlack", [0.5, 0.9]],
+    ["FFOFurBlack", [0.3, 0.7]]]
+Nose = [["FFOFaceFleshBlack", [0.5, 0.9]]]
 
 [[facemorphs.Reindeer]]
 "Nose - Full" = { position = [0.0, 0.4, -0.5] }
@@ -275,13 +315,17 @@ weight_range = {thin=[0, 50]}
 ### Whitetail ###
 
 [[color_schemes.WhiteTail]]
-Skin_tone = [["FFOFurBrown", 0.9], ["FFOFurBrownL", 0.9], ["FFOFurRusset", 0.9], ["FFOFurRussetD", 0.9]]
-Eye_Lower = [["probability", 0.5], ["FFOFurWhite", 0.8], ["FFOFurWhite", 0.5], ["FFOFurTan", 0.8], ["FFOFurTan", 0.5]]
-Eyebrow = [["probability", 0.5], ["FFOFurWhite", 0.8], ["FFOFurWhite", 0.5], ["FFOFurTan", 0.8], ["FFOFurTan", 0.5]]
-Chin = [["probability", 1.0], ["FFOFurWhite", 0.9], ["FFOFurWhite", 0.8], ["FFOFurWhite", 0.5]]
-Muzzle = [["probability", 1.0], ["FFOFurWhite", 0.9], ["FFOFurWhite", 0.8]]
-Muzzle_Stripe = [["probability", 1.0], ["FFOFurBlack", 1.0], ["FFOFurBlack", 0.9]]
-Nose = [["FFOFaceFleshBlack", 0.9], ["FFOFaceFleshBlack", 0.7], ["FFOFaceFleshBlack", 0.5], ]
+Skin_tone = [["FFOFurBrown", [0.7, 0.9]], ["FFOFurBrownL", [0.7, 0.9]],
+    ["FFOFurRusset", [0.7, 0.9]], ["FFOFurRussetD", [0.7, 0.9]]]
+Eye_Lower = [["probability", 0.5], ["FFOFurWhite", [0.6, 0.9]], ["FFOFurWhite", [0.3, 0.7]],
+    ["FFOFurTan", [0.6, 0.9]], ["FFOFurTan", [0.3, 0.7]]]
+Eyebrow = [["probability", 0.5], ["FFOFurWhite", [0.6, 0.9]], ["FFOFurWhite", [0.3, 0.7]],
+    ["FFOFurTan", [0.6, 0.9]], ["FFOFurTan", [0.3, 0.7]]]
+Chin = [["probability", 1.0], ["FFOFurWhite", [0.7, 0.9]], ["FFOFurWhite", [0.6, 0.9]],
+    ["FFOFurWhite", [0.3, 0.7]]]
+Muzzle = [["probability", 1.0], ["FFOFurWhite", [0.7, 0.9]], ["FFOFurWhite", [0.6, 0.9]]]
+Muzzle_Stripe = [["probability", 1.0], ["FFOFurBlack", [0.8, 0.9]], ["FFOFurBlack", [0.7, 0.9]]]
+Nose = [["FFOFaceFleshBlack", [0.5, 0.9]]]
 
 [[facemorphs.WhiteTail]]
 "Ears" = {position=[0, 1, 0], scale=0.9}
@@ -317,14 +361,17 @@ child_race = "FFOFoxChildRace"
 breeds = [["FennecBreed", 0.05]]
 
 [[color_schemes.RedFox]]
-Skin_tone = [["FFOFurOrange02", 0.9], ["FFOFurOrange02", 0.7], ["FFOFurOrange03", 0.9], ["FFOFurOrange03", 0.7], ["FFOFurOrange04", 0.9], ["FFOFurOrange04", 0.7], ["FFOFurOrange05", 0.9], ]
-Mask = [["FFOFurWhite", 0.9]]
-Muzzle_Stripe = [["FFOFurBlack", 0.9], ["FFOFurBlack", 0.7], ["FFOFurBlack", 0.5], ]
+Skin_tone = [["FFOFurOrange02", [0.7, 0.9]], ["FFOFurOrange02", [0.5, 0.9]],
+    ["FFOFurOrange03", [0.7, 0.9]], ["FFOFurOrange03", [0.5, 0.9]], ["FFOFurOrange04", [0.7, 0.9]],
+    ["FFOFurOrange04", [0.5, 0.9]], ["FFOFurOrange05", [0.7, 0.9]]]
+Mask = [["FFOFurWhite", [0.7, 0.9]]]
+Muzzle_Stripe = [["FFOFurBlack", [0.7, 0.9]], ["FFOFurBlack", [0.5, 0.9]],
+    ["FFOFurBlack", [0.3, 0.7]]]
 Ears = [["probability", 1.0]]
 
 [[facemorphs.RedFox]]
 sex = "female"
-"Nose" = { "Small Nose Tip" = 0.25 }
+"Nose" = { "Small Nose Tip" = [0.2, 0.3] }
 
 [[race_customization]]
 race = "FFOFoxRace"
@@ -333,22 +380,24 @@ facemorphs = "RedFox"
 weight_range = {muscle=[0, 60], fat=[0, 50]}
 
 [[color_schemes.Fennec]]
-Skin_tone = [["FFOFurFennecYellow", 0.9], ["FFOFurFennecYellow", 0.7] ]
-Mask = [["probability", 0.5], ["FFOFurWhite", 0.4], ["FFOFurWhite", 0.2], ]
-Muzzle_Stripe = [["FFOFurBlack", 0.5], ["FFOFurBlack", 0.3], ["FFOFurBlack", 0.1], ]
-Ears = [["probability", 0.5], ["FFOFurBlack", 0.5], ["FFOFurBlack", 0.3], ["FFOFurBlack", 0.1],]
+Skin_tone = [["FFOFurFennecYellow", [0.7, 0.9]], ["FFOFurFennecYellow", [0.5, 0.9]] ]
+Mask = [["probability", 0.5], ["FFOFurWhite", [0.2, 0.6]], ["FFOFurWhite", [0.05, 0.4]], ]
+Muzzle_Stripe = [["FFOFurBlack", [0.3, 0.7]], ["FFOFurBlack", [0.1, 0.5]],
+    ["FFOFurBlack", [0.05, 0.3]]]
+Ears = [["probability", 0.5], ["FFOFurBlack", [0.3, 0.7]], ["FFOFurBlack", [0.1, 0.5]],
+    ["FFOFurBlack", [0.05, 0.3]]]
 
 [[facemorphs.Fennec]]
 sex = "male"
-"Ears - Full" = { position = [0.0, 0.7, 1], scale = 0.8 }
-"Nose - Full" = { position = [0.0, 0, -0.2], scale = -0.8 }
-"Nose" = { "Small Tip" = 0.5 }
+"Ears - Full" = { position = [0.0, 0.7, 1], scale = [0.6, 0.8] }
+"Nose - Full" = { position = [0.0, 0, -0.2], scale = [-0.5, -0.8] }
+"Nose" = { "Small Tip" = [0.5, 0.75] }
 
 [[facemorphs.Fennec]]
 sex = "female"
-"Ears - Full" = { position = [0.0, 0.7, 1], scale = 0.8 }
-"Nose - Full" = { position = [0.0, 0, -0.2], scale = -0.8 }
-"Nose" = { "Small Nose Tip" = 0.5 }
+"Ears - Full" = { position = [0.0, 0.7, 1], scale = [0.6, 0.8] }
+"Nose - Full" = { position = [0.0, 0, -0.2], scale = [0.5, 0.8] }
+"Nose" = { "Small Nose Tip" = [0.5, 0.75] }
 
 [[race_customization]]
 race = "FennecBreed"
@@ -389,10 +438,11 @@ breeds = [["ManedLion", 0.5], ["CougarBreed", 0.05]]
 
 [[color_schemes.Lion]]
 Skin_tone = [
-    ["FFOFurTanD", 0.9], ["FFOFurTan", 0.9], ["FFOFurGingerL", 0.9], ["FFOFurTan01", 0.9], 
-    ["FFOFurTan01", 0.9], ["FFOFurTan01", 0.9]]
+    ["FFOFurTanD", [0.7, 0.9]], ["FFOFurTan", [0.7, 0.9]], ["FFOFurGingerL", [0.7, 0.9]], ["FFOFurTan01", [0.7, 0.9]], 
+    ["FFOFurTan01", [0.7, 0.9]], ["FFOFurTan01", [0.7, 0.9]]]
 Nose = [["probability", 1.0]]
-Muzzle = [["probability", 0.5], ["FFOFurWhite", 0.15], ["FFOFurWhite", 0.2], ["FFOFurWhite", 0.1], ]
+Muzzle = [["probability", 0.5], ["FFOFurWhite", [0.05, 0.35]], ["FFOFurWhite", [0.05, 0.4]],
+    ["FFOFurWhite", [0.05, 0.3]]]
 
 [[race_customization]]
 race = "FFOLionRace"
@@ -409,11 +459,12 @@ HAIR = { headpart = ["FFO_HairMaleMane",
 
 [[color_schemes.Cougar]]
 Skin_tone = [
-    ["FFOFurTanD", 0.9], ["FFOFurTan", 0.9], ["FFOFurGingerL", 0.9], ["FFOFurTan01", 0.9], 
-    ["FFOFurTan01", 0.9], ["FFOFurTan01", 0.9]]
+    ["FFOFurTanD", [0.7, 0.9]], ["FFOFurTan", [0.7, 0.9]], ["FFOFurGingerL", [0.7, 0.9]], ["FFOFurTan01", [0.7, 0.9]], 
+    ["FFOFurTan01", [0.7, 0.9]], ["FFOFurTan01", [0.7, 0.9]]]
 Nose = [["probability", 1.0]]
-Cougar_Stripe = [["FFOFurBlack", 0.9], ["FFOFurBlack", 0.7], ["FFOFurBlack", 0.5], ]
-Muzzle = [["FFOFurWhite", 0.9], ["FFOFurWhite", 0.7], ["FFOFurWhite", 0.5], ]
+Cougar_Stripe = [["FFOFurBlack", [0.7, 0.9]], ["FFOFurBlack", [0.5, 0.9]],
+    ["FFOFurBlack", [0.3, 0.7]]]
+Muzzle = [["FFOFurWhite", [0.7, 0.9]], ["FFOFurWhite", [0.5, 0.9]], ["FFOFurWhite", [0.3, 0.7]], ]
 
 [[facemorphs.Cougar]]
 Face = ["Cougar Head", 1.0]
@@ -456,7 +507,7 @@ race = "FFOTigerRace"
 child_race = "FFOTigerChildRace"
 weight_range = {thin=[0, 30], muscle=[30, 100]}
 Skin_tone = [["probability", 1.0]]
-Tiger_Face = [["probability", 1.0], ["FFOFurWhite", 1.0]]
+Tiger_Face = [["probability", 1.0], ["FFOFurWhite", [0.8, 0.9]]]
 Tiger_Stripes = [["probability", 1.0]]
 
 

@@ -16,6 +16,16 @@
 #   position = [x, y, z]   rotation = [x, y, z]   scale = n   (one slider, all axes)
 # Omitted axes default to 0 (no change). Preset/group weights are -1..1.
 #
+# ANY of those numbers may instead be a [lo, hi] RANGE, and each NPC then draws
+# its own value from it — so a race gets varied snouts instead of one cloned
+# face. Ranges nest inside position/rotation per axis:
+#   scale = [0.2, 0.6]                  # every NPC's ears differ a little
+#   position = [[-0.4, -0.1], 0, 0]     # X jitters, Y and Z stay pinned
+#   "Large Tip" = [0.5, 0.9]            # preset weight varies
+#   "Brow Type" = ["Bushy", [0.4, 0.8]] # ... in the explicit group form too
+# The draw is deterministic on the NPC, so runs reproduce exactly. A bare
+# number means what it always did: every NPC of the race gets it verbatim.
+#
 # A block may set  sex = "male" | "female"  to scope it to one sex (omit = both).
 # The RACE defines regions AND morph-group presets PER SEX — often with DIFFERENT
 # names (fox Nose presets: male "Large Tip"/"Small Tip" vs female "Large Nose
