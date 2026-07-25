@@ -32,6 +32,7 @@ from PIL import Image
 
 from . import blend as _blend
 from .assets import AssetResolver
+from .texture import load_texture
 
 log = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ VALID_OUTPUT_SIZES = (256, 512, 1024, 2048, 4096)
 
 def _load_rgb(path: Path, target_size: Optional[int] = None) -> np.ndarray:
     """Load an image as RGB float32 in [0,1], optionally resampled square."""
-    im = Image.open(path).convert("RGB")
+    im = load_texture(path, "RGB")
     if target_size is not None and im.size != (target_size, target_size):
         im = im.resize((target_size, target_size), Image.Resampling.LANCZOS)
     return np.asarray(im, dtype=np.float32) / 255.0
@@ -48,7 +49,7 @@ def _load_rgb(path: Path, target_size: Optional[int] = None) -> np.ndarray:
 
 def _load_coverage(path: Path, size: int) -> np.ndarray:
     """Load a tint mask and return grayscale coverage (2D float32 in [0,1])."""
-    im = Image.open(path).convert("RGB")
+    im = load_texture(path, "RGB")
     if im.size != (size, size):
         im = im.resize((size, size), Image.Resampling.LANCZOS)
     rgb = np.asarray(im, dtype=np.float32) / 255.0

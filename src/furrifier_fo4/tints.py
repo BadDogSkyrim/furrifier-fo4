@@ -23,7 +23,7 @@ from typing import Optional
 
 from esplib import Record
 from .models import Sex
-from .util import hash_string, wildcard_match
+from .util import hash_string, pick_range, wildcard_match
 
 log = logging.getLogger(__name__)
 
@@ -165,7 +165,13 @@ class RaceTints:
                 match = next((p for p in palette if p[0] == edid), None)
                 if match is None:
                     continue
-                usable.append((clfm_fid, match[1], tmpl))  # scheme intensity
+                # Scheme intensity, drawn from its range for THIS NPC. Keyed on
+                # the LAYER as well as the colour, so one colour reused across
+                # two layers doesn't draw the same alpha for both.
+                usable.append(
+                    (clfm_fid,
+                     pick_range(match[1], signature, f"tint.{option.name}.{edid}"),
+                     tmpl))
             elif alpha > 0.0001 or allow_zero:
                 usable.append((clfm_fid, alpha, tmpl))
         if not usable:

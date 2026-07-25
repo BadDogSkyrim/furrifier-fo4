@@ -268,7 +268,7 @@ def apply_furry(patch: Plugin, ov: Record, furry_race: Record,
         if morph_spec is not None:
             from .facemorphs import apply_facemorphs
             apply_facemorphs(patch, ov, race_edid, sex, morph_spec,
-                             race_morphs)
+                             race_morphs, signature or "")
 
     ov.modified = True
     return ov

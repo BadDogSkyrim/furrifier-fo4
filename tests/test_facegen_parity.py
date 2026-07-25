@@ -136,10 +136,16 @@ def _all_shapes(path) -> dict:
 
 @pytest.fixture(scope="module")
 def baked():
-    """Bake John + Rosalind through the CLI front door, once."""
+    """Bake John + Rosalind through the CLI front door, once.
+
+    `--races` pins the bake to the FROZEN catalog under `fixtures/races/`,
+    not the shipping one. The CK reference encodes specific tint alphas and
+    morphs, so baking against the live catalog would turn any colour edit
+    into a golden-test failure with no code change behind it.
+    """
     argv = ["furrify-fo4", "--npcs", "John,RosalindOrman",
             "--scheme", "test_facegen", "--resources", str(_FIX),
-            "-o", str(_OUT)]
+            "--races", str(_FIX / "races"), "-o", str(_OUT)]
     old = sys.argv
     sys.argv = argv
     try:

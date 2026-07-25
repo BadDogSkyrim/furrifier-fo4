@@ -166,9 +166,9 @@ def test_color_scheme_per_sex_union(tmp_path):
     male = c.color_scheme_for('Bird', Sex.MALE)
     female = c.color_scheme_for('Bird', Sex.FEMALE)
     assert set(male) == {'Eyes', 'Body'} and set(female) == {'Eyes', 'Body'}
-    assert male['Body'].colors == [('blue', 0.9)]      # sex-specific differs
-    assert female['Body'].colors == [('brown', 0.9)]
-    assert male['Eyes'].colors == [('yellow', 0.9)]    # shared 'both' to either
+    assert male['Body'].colors == [('blue', (0.9, 0.9))]    # sex-specific differs
+    assert female['Body'].colors == [('brown', (0.9, 0.9))]
+    assert male['Eyes'].colors == [('yellow', (0.9, 0.9))]  # shared 'both' to either
 
 
 def test_color_scheme_single_table_is_both(tmp_path):
@@ -334,3 +334,48 @@ def test_top_level_breeds_now_warns(tmp_path, caplog):
     assert any('unrecognized top-level key' in r.message
                and 'breeds' in r.message for r in caplog.records)
     assert 'B' not in cust.breeds
+
+
+def test_range_on_a_breed_probability_warns_and_skips(tmp_path, caplog):
+    """Breed weights are probabilities — a [lo, hi] there used to crash the
+    whole catalog load on float(list)."""
+    (tmp_path / 'r.toml').write_text(
+        '[[race_customization]]\nrace = "FFODeerRace"\n'
+        'breeds = [["ElkBreed", [0.1, 0.2]], ["GoatBreed", 0.3]]\n')
+    c = load_customization(tmp_path)
+
+    assert 'a probability takes a plain number' in caplog.text
+    names = [b.name for b in c.breeds_by_parent['FFODeerRace']]
+    assert names == ['GoatBreed']          # the good one still registered
+
+
+def test_weight_range_reversed_band_is_swapped():
+    """`[hi, lo]` is taken as min..max instead of producing an inverted band."""
+    c = build('''
+    [[race_customization]]
+    race = "Cheetah"
+    weight_range = {thin = [100, 40], fat = [20, 0]}
+    ''')
+    assert c.weight_range('Cheetah', Sex.MALE) == {0: (0.4, 1.0), 2: (0.0, 0.2)}
+
+
+def test_weight_range_non_numeric_axis_warns_and_skips(caplog):
+    """A non-numeric band used to raise on float(); now it warns and the
+    other axes still load."""
+    c = build('''
+    [[race_customization]]
+    race = "Cheetah"
+    weight_range = {thin = ["a", "b"], fat = [0, 20]}
+    ''')
+    assert 'weight_range' in caplog.text
+    assert c.weight_range('Cheetah', Sex.MALE) == {2: (0.0, 0.2)}
+
+
+def test_weight_range_bare_number_still_warns():
+    """A bare number is a typo, not a request to pin the axis."""
+    c = build('''
+    [[race_customization]]
+    race = "Cheetah"
+    weight_range = {thin = 40, fat = [0, 20]}
+    ''')
+    assert c.weight_range('Cheetah', Sex.MALE) == {2: (0.0, 0.2)}

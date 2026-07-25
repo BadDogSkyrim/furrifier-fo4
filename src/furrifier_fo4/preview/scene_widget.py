@@ -29,6 +29,7 @@ from PySide6.QtQuickWidgets import QQuickWidget
 from PySide6.QtWidgets import QWidget
 
 from ..facegen.assets import AssetResolver
+from ..facegen.texture import load_texture
 
 log = logging.getLogger(__name__)
 
@@ -246,7 +247,7 @@ def resolve_and_convert_diffuse(relpath: str, resolver: AssetResolver,
     png_path = temp_dir / f"{Path(src).stem}_{_mtime_token(src)}.png"
     if not png_path.exists():
         try:
-            Image.open(src).convert("RGBA").save(png_path)
+            load_texture(src, "RGBA").save(png_path)
         except Exception as exc:
             log.warning("texture decode failed %s: %s", relpath, exc)
             return None
@@ -274,7 +275,7 @@ def resolve_and_softlight_diffuse(relpath: str, resolver: AssetResolver,
     if not png_path.exists():
         try:
             from ..facegen.blend import _soft_light
-            im = np.asarray(Image.open(src).convert("RGBA")).astype(np.float32)
+            im = np.asarray(load_texture(src, "RGBA")).astype(np.float32)
             base = im[:, :, :3] / 255.0
             tint = np.array([r, g, b], dtype=np.float32) / 255.0
             im[:, :, :3] = np.clip(_soft_light(base, tint) * 255.0, 0, 255)
@@ -312,8 +313,8 @@ def resolve_greyscale_hair(diffuse_rel: str, greyscale_rel: str,
     if out_path.exists():
         return QUrl.fromLocalFile(str(out_path)).toString()
     try:
-        diff = np.asarray(Image.open(diff_src).convert("RGBA"))
-        grad = np.asarray(Image.open(grad_src).convert("RGB"))
+        diff = np.asarray(load_texture(diff_src, "RGBA"))
+        grad = np.asarray(load_texture(grad_src, "RGB"))
     except Exception as exc:
         log.warning("hair composite decode failed (%s / %s): %s",
                     diffuse_rel, greyscale_rel, exc)

@@ -1,0 +1,462 @@
+# FFO race catalog
+#
+# The `races` files define furry races and tell the furrifier how to handle them. The
+# definition can be very minimal, like `FFOOtterRace` below, where most of the information
+# comes from the race itself. Or it can be very elaborate like `FFODeerRace`, which which
+# has multiple `breeds`, each of which has its own specific tints and morphs.
+#
+# If you're adding a race, create one of these files for it and it will be picked up by
+# the furrifier.
+#
+# Note all "random" selections in the furrifier are actually deterministic using a hash of
+# the NPC's EditorID, so an NPC will always get the same look across multiple runs.
+# (Unless you change the scheme or resources available.)
+
+# ==== Race-independent settings ====
+
+# The hair-variant prefix (must be defined first) tells the furrifier the prefix used for
+# furry variants of vanilla hair, as in `FFO_<vanillaHairEditorID>_<group>`. "FFO_" is the
+# hair prefix, "_<group>" identifies the race(s) the hair is valid for. If an NPC has
+# `vanillaHair`, the furrifier will look for matching `FFO_vanillaHair_*` that is valid
+# for the NPC and uses that if found. If not, it falls back on picking randomly. 
+hair_variant_prefix = "FFO_"
+
+# Tint categories group tint layers. By default, only one tint layer per category will be
+# applied. So if you define large and small eyebrows ("Eyebrow" and "Eyebrow Spot"), the
+# "Eyebrow" definition below ensures only one gets applied (chosen randomly).
+#
+# Tint categories are scoped to this file. 
+
+[tint_categories]
+"Skin Tone"         = ["Skin tone"]
+Mask                = ["Face Mask *", "Face Plate", "Mask", "Eye Stripe", "Eye Tear", "White Face"]
+Muzzle              = ["Muzzle", "Muzzle Small", "Cougar White"]
+Muzzle_Stripe       = ["Muzzle Stripe", "Muzzle Upper", "Muzzle Side", "Mouche", "Nose Stripe*", "Cougar *"]
+Cougar_Stripe       = ["Cougar 01", "Cougar 02", ]
+Chin                = ["Chin", "Lower Jaw"]
+Ear                 = ["Ears"]
+Eyebrow             = ["Eyebrow", "Eyebrow Spot"]
+Forehead            = ["Forehead", "Blaze *", "Cap", "Head Scales", "Star", "Upper Head"]
+Eyeliner            = ["Eyeliner", "Eye Shadow", "Eye Socket"]
+"Eyesocket Lower"   = ["Eye Lower"]
+"Eyesocket Upper"   = ["Eye Upper", "Eye Socket Upper"]
+"Cheek Color Lower" = ["Cheek Color Lower"]
+"Cheek Color"       = ["Cheek Color", "Cheeks", "White Face 0*"]
+Nose                = ["Nose", "Nose Color"]
+Tiger_Face          = ["White Face 01", "White Face 02", "White Face 03", ]
+Tiger_Stripes       = ["Stripes 01", "Stripes 02", "Stripes 03" ]
+
+
+####### Cheetah #######
+
+[[race_customization]]
+race = "FFOCheetahRace"
+
+# Any race may have a child race. For general use, it really needs a child race, but you
+# can assign one of the existing child races if you'd rather (e.g. use FFOSnekDogChildRace
+# as the children for a Dino race).
+child_race = "FFOCheetahChildRace"
+
+# Cheetahs are lean: low muscle, low fat. The original 0-100 `fat` value will be mapped to
+# the cheetah's 0-30 range. Values may be `thin`, `muscle`, and `fat`. For an NPC they
+# have to add to 100, so it's most convenient to define only two and let the last to be
+# set so as to make the math work.
+weight_range = {muscle=[0, 60], fat=[0, 30]}
+
+
+####### Deer #######  
+
+[[race_customization]]
+race = "FFODeerRace"
+child_race = "FFODeerChildRace"
+
+# The deer race provides a lot of customization so different kinds of cervids can be
+# created. Just randomly combining such disparate parts won't produce a good-looking NPC,
+# so we define specific `breeds`, which constrain the options. Breed names can be used
+# anywhere race names can be used.
+#
+# The nunbers are percentages. If they add up to less than 1, the remainder of the NPCs
+# will be random, using all options.
+breeds = [["DikdikBreed", 0.10], 
+    ["ElkBreed", 0.15], 
+    ["AntelopeBreed", 0.10], 
+    ["GoatBreed", 0.10], 
+    ["MooseBreed", 0.15], 
+    ["ReindeerBreed", 0.20], 
+    ["WhiteTailBreed", 0.20]]
+
+
+### Dikdik ###  
+
+# A color scheme defines a specific, constrained set of tint layers and colors for the breed.
+[[color_schemes.Dikdik]]
+
+# Colors are constrained by listing the allowed tint colors and alpha values. The colors
+# must be allowed for the tint layer by the race.
+Skin_tone = [["FFOFurBrown", 0.5], ["FFOFurBrownD", 0.3], ["FFOFurBrownL", 0.4], ["FFOFurRedBrown", 0.4]]
+
+# You can set the probability of a layer being applied at all--here, a 70% probability
+# that the Eye_Lower layer is applied. 100% is the default.
+Eye_Lower = [["probability", 0.7], ["FFOFurBlack", 0.5], ["FFOFurBlack", 0.7], ["FFOFurWhite", 0.5], ["FFOFurWhite", 0.3], ["FFOFurTan", 0.6], ["FFOFurTan", 0.4]]
+Eyebrow = [["probability", 0.7], ["FFOFurBlack", 0.5], ["FFOFurBlack", 0.7], 
+    ["FFOFurWhite", 0.5], ["FFOFurWhite", 0.3], ["FFOFurTan", 0.6], ["FFOFurTan", 0.4]]
+Chin = [["FFOFurWhite", 0.3], ["FFOFurWhite", 0.2], ["FFOFurWhite", 0.1], ]
+
+# `Muzzle` is one of the tint categories defined above. We could also refer to a tint
+# layer by its layer name.
+Muzzle = [["FFOFurBlack", 0.5], ["FFOFurBlack", 0.3], ["FFOFurBlack", 0.1], ]
+Nose = [["FFOFaceFleshBlack", 0.9], ["FFOFaceFleshBlack", 0.7], ["FFOFaceFleshBlack", 0.5], ]
+
+# Facemorphs define how to use the race's morphs. Unlike tints, morphs are never used
+# unless defined here. It's too easy to create mostrosities.
+#
+# Setting good values for bone morphs is a PITA. Best is to design the look in Creation
+# Kit and read the values from there. 
+[[facemorphs.Dikdik]]
+
+# A face part can be moved by setting position and scale. The value is the value of the
+# morph slider, which always runs from -1 to 1. When you're adjusting bone morphs, you
+# reference the region (as shown in Creation Kit).
+"Ears" = {position=[-0.2, 0, 0], scale=-0.5}
+"Nose - Full" = {position=[0.0, 0.3, -1], scale=-0.4}
+
+# Morph groups are used when referencing a specific morph ("Slanted" eyes). Here both
+# region and morph group are called "Eyes" so one line serves for both. Morph groups are
+# given a strength (0..1).
+"Eyes" = {position=[-0.4, -0.2, 0], scale=0.2, Slanted=0.75}
+"Nose - Bridge" = {position=[0, -0.7, -0.2]}
+
+# Once the color scheme and facemorphs are defined, we can use them in defining a breed.
+[[race_customization]]
+race = "DikdikBreed"
+
+# Dikdik only and always get dikdik horns.
+EYEBROWS = {headpart=["FFODeerHorns06", "FFODeerHorns06F"]} 
+# We reference the dikdik colors and face morphs.
+colors = "Dikdik"
+facemorphs = "Dikdik"
+# Dikdiks are small and lightweight.
+weight_range = {muscle=[0, 60], fat=[0, 30]}
+
+
+### Elk/Moose ###  
+
+# Color schemes and facemorphs can be shared. Elk and moose are generically brown, with
+# similarly-shaped noses and muzzles.
+[[color_schemes.ElkMoose]]
+Skin_tone = [["FFOFurBrown", 0.9], ["FFOFurBrownD", 0.9], ["FFOFurBrown", 0.7], ["FFOFurBrownD", 0.7]]
+Muzzle_Stripe = [["FFOFurBlack", 0.2], ["FFOFurBlack", 0.3], ["FFOFurBlack", 0.1], ["FFOFurBrownD", 0.3]]
+Eye_Lower = [["probability", 0.7], ["FFOFurBlack", 0.5], ["FFOFurBlack", 0.7], ["FFOFurWhite", 0.15], ["FFOFurWhite", 0.3], ["FFOFurTan", 0.3], ["FFOFurTan", 0.4]]
+Eyebrow = [["probability", 0.7], ["FFOFurWhite", 0.7], ["FFOFurWhite", 0.5], ["FFOFurWhite", 0.3], ["FFOFurWhite", 0.1], ["FFOFurTan", 0.3], ["FFOFurTan", 0.4]]
+Mouche = [["FFOFurBlack", 0.9], ["FFOFurBlack", 0.7], ["FFOFurBlack", 0.5], ]
+Muzzle = [["probability", 0.5], ["FFOFurBlack", 0.7], ["FFOFurBlack", 0.5], ["FFOFurBlack", 0.3], ]
+Nose = [["FFOFaceFleshBlack", 0.9], ["FFOFaceFleshBlack", 0.7], ["FFOFaceFleshBlack", 0.5], ]
+
+[[facemorphs.ElkMoose]]
+"Nose - Full" = { position = [0.0, 0.4, -0.5] }
+# Nostrils are a morph group with no bone associated.
+"Nostrils" = {"Broad" = 0.8}
+# Nose shape is a morph group associated with the "Nose - Bridge" region. 
+"Nose Shape" = {"Roman Nose" = 0.6}
+
+# Males and females can be customized separately. For elk & moose, females have no horns.
+[[race_customization]]
+race = "ElkBreed"
+sex = "male"
+colors = "ElkMoose"
+facemorphs = "ElkMoose"
+EYEBROWS = {headpart=["FFODeerHorns04"]} # Elk horns 
+FACIAL_HAIR = 0.2
+weight_range = {thin=[0, 50], muscle=[20, 100]}
+
+[[race_customization]]
+race = "ElkBreed"
+sex = "female"
+colors = "ElkMoose"
+facemorphs = "ElkMoose"
+EYEBROWS = 0.0 
+FACIAL_HAIR = 0.0
+weight_range = {thin=[0, 50], muscle=[20, 100]}
+
+[[race_customization]]
+race = "MooseBreed"
+sex = "male"
+colors = "ElkMoose"
+facemorphs = "ElkMoose"
+EYEBROWS = {headpart=["FFODeerHorns08"]} # Moose horns 
+FACIAL_HAIR = 0.2
+weight_range = {fat=[30, 100], muscle=[30, 100]}
+
+[[race_customization]]
+race = "MooseBreed"
+sex = "female"
+colors = "ElkMoose"
+facemorphs = "ElkMoose"
+EYEBROWS = 0.0 
+FACIAL_HAIR = 0.0
+weight_range = {fat=[30, 100], muscle=[30, 100]}
+
+
+### Antelope ###
+
+[[color_schemes.Antelope]]
+Skin_tone = [["FFOFurGinger", 0.9], ["FFOFurGingerD", 0.8], ["FFOFurBrownL", 0.8], ["FFOFurRusset", 0.8],]
+Eye_Lower = [["probability", 0.7], ["FFOFurWhite", 0.7], ["FFOFurWhite", 0.5], ["FFOFurTan", 0.7], ["FFOFurTan", 0.5]]
+Eyebrow = [["probability", 1.0], ["FFOFurWhite", 0.8], ["FFOFurWhite", 0.65]]
+Chin = [["FFOFurWhite", 0.7], ["FFOFurWhite", 0.5], ["FFOFurWhite", 0.3], ]
+Cheek_Color_Lower = [["FFOFurWhite", 0.5], ["FFOFurWhite", 0.3], ["FFOFurWhite", 0.1], ["FFOFurTan", 0.5], ["FFOFurTan", 0.3], ["FFOFurTan", 0.1], ]
+Muzzle_Spot = [["probability", 1.0], 
+    ["FFOFurBlack", 0.9], ["FFOFurBlack", 0.7], ["FFOFurBlack", 0.5], ["FFOFurBlack", 0.3], ]
+Face_Upper = [["probability", 1.0], ["FFOFurWhite", 0.8], ["FFOFurWhite", 0.65]]
+Muzzle = [["probability", 1.0], ["FFOFurWhite", 0.6], ["FFOFurWhite", 0.8], ["FFOFurWhite", 0.4]]
+Gazelle_Eye = [["FFOFurBlack", 0.9], ["FFOFurBlack", 0.7], ["FFOFurBlack", 0.6], ]
+Nose = [["FFOFaceFleshBlack", 0.9], ["FFOFaceFleshBlack", 0.7], ["FFOFaceFleshBlack", 0.5], ]
+
+[[facemorphs.Antelope]]
+"Cheekbones" = {position=[-0.5, 0, 0]}
+"Ears" = {position=[0, 1, 0], scale=0.9}
+"Eyes" = {position=[-0.5, 0, 0], scale=0.7}
+"Nose - Full" = {position=[0, 0.6, -0.9]}
+"Nostrils" = {"Narrow"=0.9}
+
+[[race_customization]]
+race = "AntelopeBreed"
+# We mixed gazelles and pronghorns under antelopes. Either horns can be selected. Female
+# horns are marked as female-only in the headpart definition, so the right ones will be
+# selected..
+EYEBROWS = {headpart=["FFODeerHorns03", "FFODeerHorns03F", "FFODeerHorns10", "FFODeerHorns10F"]} 
+FACIAL_HAIR = 0.1
+colors = "Antelope"
+facemorphs = "Antelope"
+weight_range = {muscle=[0, 60], fat=[0, 30]}
+
+
+### Goat ###
+
+[[color_schemes.Goat]]
+Skin_tone = [["FFOFurGinger", 0.9], ["FFOFurWhite", 0.9], ["FFOFurTan", 0.9], ["FFOFurGinger", 0.7], ["FFOFurWhite", 0.7], ["FFOFurTan", 0.7], ]
+Eye_Lower = [["probability", 0.5], ["FFOFurBlack", 0.5], ["FFOFurBlack", 0.7], ["FFOFurWhite", 0.5], ["FFOFurWhite", 0.3], ["FFOFurTan", 0.6], ["FFOFurTan", 0.4]]
+Eyebrow = [["probability", 0.5], ["FFOFurBlack", 0.5], ["FFOFurBlack", 0.7], ["FFOFurWhite", 0.5], ["FFOFurWhite", 0.3], ["FFOFurTan", 0.6], ["FFOFurTan", 0.4]]
+Chin = [["FFOFurWhite", 0.5], ["FFOFurWhite", 0.3], ["FFOFurWhite", 0.1], ]
+Nose = [["FFOFaceFleshBlack", 0.9], ["FFOFaceFleshBlack", 0.7], ["FFOFaceFleshBlack", 0.5], ]
+
+[[race_customization]]
+race = "GoatBreed"
+EYEBROWS = {headpart=["FFODeerHorns07"]} # Goat horns 
+FACIAL_HAIR = 0.5
+colors = "Goat"
+
+
+### Reindeer ###
+
+[[color_schemes.Reindeer]]
+Skin_tone = [["FFOFurBrown", 0.9], ["FFOFurBrownD", 0.9], ["FFOFurBrown", 0.7], ["FFOFurBrownD", 0.7], ]
+Muzzle_Stripe = [["FFOFurBlack", 0.3], ["FFOFurBlack", 0.2], ["FFOFurBlack", 0.1], ["FFOFurBrownD", 0.5]]
+Eye_Lower = [["probability", 0.7], ["FFOFurBlack", 0.5], ["FFOFurBlack", 0.7], ["FFOFurWhite", 0.15], ["FFOFurWhite", 0.3], ["FFOFurTan", 0.3], ["FFOFurTan", 0.4]]
+Eyebrow = [["probability", 0.7], ["FFOFurBlack", 0.5], ["FFOFurBlack", 0.7], ["FFOFurWhite", 0.15], ["FFOFurWhite", 0.3], ["FFOFurTan", 0.3], ["FFOFurTan", 0.4]]
+Cheek_Color_Lower = [["FFOFurWhite", 0.5], ["FFOFurWhite", 0.3], ["FFOFurWhite", 0.1], ["FFOFurTan", 0.5], ["FFOFurTan", 0.3], ["FFOFurTan", 0.1], ]
+Mouche = [["probability", 0.5], ["FFOFurBlack", 0.9], ["FFOFurBlack", 0.7], ["FFOFurBlack", 0.5], ]
+Nose = [["FFOFaceFleshBlack", 0.9], ["FFOFaceFleshBlack", 0.7], ["FFOFaceFleshBlack", 0.5], ]
+
+[[facemorphs.Reindeer]]
+"Nose - Full" = { position = [0.0, 0.4, -0.5] }
+Nostrils = {"Broad" = 0.8}
+"Nose Shape" = {"Roman Nose" = 0.6}
+
+[[race_customization]]
+race = "ReindeerBreed"
+colors = "Reindeer"
+facemorphs = "Reindeer"
+EYEBROWS = {headpart=["FFODeerHorns02"]} # Moose horns 
+FACIAL_HAIR = 0.5
+weight_range = {thin=[0, 50]}
+
+
+### Whitetail ###
+
+[[color_schemes.WhiteTail]]
+Skin_tone = [["FFOFurBrown", 0.9], ["FFOFurBrownL", 0.9], ["FFOFurRusset", 0.9], ["FFOFurRussetD", 0.9]]
+Eye_Lower = [["probability", 0.5], ["FFOFurWhite", 0.8], ["FFOFurWhite", 0.5], ["FFOFurTan", 0.8], ["FFOFurTan", 0.5]]
+Eyebrow = [["probability", 0.5], ["FFOFurWhite", 0.8], ["FFOFurWhite", 0.5], ["FFOFurTan", 0.8], ["FFOFurTan", 0.5]]
+Chin = [["probability", 1.0], ["FFOFurWhite", 0.9], ["FFOFurWhite", 0.8], ["FFOFurWhite", 0.5]]
+Muzzle = [["probability", 1.0], ["FFOFurWhite", 0.9], ["FFOFurWhite", 0.8]]
+Muzzle_Stripe = [["probability", 1.0], ["FFOFurBlack", 1.0], ["FFOFurBlack", 0.9]]
+Nose = [["FFOFaceFleshBlack", 0.9], ["FFOFaceFleshBlack", 0.7], ["FFOFaceFleshBlack", 0.5], ]
+
+[[facemorphs.WhiteTail]]
+"Ears" = {position=[0, 1, 0], scale=0.9}
+"Eyes" = {position=[-0.2, -0.2, 0], scale=0.25, Slanted=0.8}
+"Nose - Full" = {position=[0, 0.6, -0.7], scale=0.2}
+"Nose Shape" = {"Dish Face" = 0.5}
+
+[[race_customization]]
+race = "WhiteTailBreed"
+sex = "male"
+colors = "WhiteTail"
+facemorphs = "WhiteTail"
+EYEBROWS = {headpart=["FFODeerHorns01"]} # Whitetail horns on males only
+FACIAL_HAIR = 0.15
+weight_range = {muscle=[0, 80], fat=[0, 50]}
+
+[[race_customization]]
+race = "WhiteTailBreed"
+colors = "WhiteTail"
+facemorphs = "WhiteTail"
+EYEBROWS = 0.0
+FACIAL_HAIR = 0.0
+sex = "female"
+weight_range = {muscle=[0, 80], fat=[0, 50]}
+
+
+####### Foxes #######  
+
+# We have separate Fennec breed. Anything not a Fennec will pick up the generic fox settings.
+[[race_customization]]
+race = "FFOFoxRace"
+child_race = "FFOFoxChildRace"
+breeds = [["FennecBreed", 0.05]]
+
+[[color_schemes.RedFox]]
+Skin_tone = [["FFOFurOrange02", 0.9], ["FFOFurOrange02", 0.7], ["FFOFurOrange03", 0.9], ["FFOFurOrange03", 0.7], ["FFOFurOrange04", 0.9], ["FFOFurOrange04", 0.7], ["FFOFurOrange05", 0.9], ]
+Mask = [["FFOFurWhite", 0.9]]
+Muzzle_Stripe = [["FFOFurBlack", 0.9], ["FFOFurBlack", 0.7], ["FFOFurBlack", 0.5], ]
+Ears = [["probability", 1.0]]
+
+[[facemorphs.RedFox]]
+sex = "female"
+"Nose" = { "Small Nose Tip" = 0.25 }
+
+[[race_customization]]
+race = "FFOFoxRace"
+colors = "RedFox"
+facemorphs = "RedFox"
+weight_range = {muscle=[0, 60], fat=[0, 50]}
+
+[[color_schemes.Fennec]]
+Skin_tone = [["FFOFurFennecYellow", 0.9], ["FFOFurFennecYellow", 0.7] ]
+Mask = [["probability", 0.5], ["FFOFurWhite", 0.4], ["FFOFurWhite", 0.2], ]
+Muzzle_Stripe = [["FFOFurBlack", 0.5], ["FFOFurBlack", 0.3], ["FFOFurBlack", 0.1], ]
+Ears = [["probability", 0.5], ["FFOFurBlack", 0.5], ["FFOFurBlack", 0.3], ["FFOFurBlack", 0.1],]
+
+[[facemorphs.Fennec]]
+sex = "male"
+"Ears - Full" = { position = [0.0, 0.7, 1], scale = 0.8 }
+"Nose - Full" = { position = [0.0, 0, -0.2], scale = -0.8 }
+"Nose" = { "Small Tip" = 0.5 }
+
+[[facemorphs.Fennec]]
+sex = "female"
+"Ears - Full" = { position = [0.0, 0.7, 1], scale = 0.8 }
+"Nose - Full" = { position = [0.0, 0, -0.2], scale = -0.8 }
+"Nose" = { "Small Nose Tip" = 0.5 }
+
+[[race_customization]]
+race = "FennecBreed"
+colors = "Fennec"
+facemorphs = "Fennec"
+
+
+####### Horses #######
+
+[[race_customization]]
+race = "FFOHorseRace"
+child_race = "FFOHorseChildRace"
+breeds = [["ManedHorseBreed", 0.5] ]
+
+[[race_customization]]
+race = "ManedHorseBreed"
+HAIR = {headpart=["FFO_HairManeFree", "FFO_HairManeRoached", "FFO_HairManeSide02F",
+    "FFO_HairManeSide02M", "FFO_HairManeSidehawkF", "FFO_HairManeSidehawkM", 
+    "FFO_HairManeSimpleF", "FFO_HairManeSimpleM", "FFO_HairManeTiedF", "FFO_HairManeTiedM", 
+    "FFO_BoyHair01", "FFO_BoyHair02", "FFO_BoyHair03", # Child race uses same headpart list
+    "FFO_GirlHair01", "FFO_GirlHair02", 
+    ]}
+
+
+####### Hyenas #######
+
+[[race_customization]]
+race = "FFOHyenaRace"
+child_race = "FFOHyenaChildRace"
+
+
+####### Lions #######
+
+[[race_customization]]
+race = "FFOLionRace"
+child_race = "FFOLionChildRace"
+breeds = [["ManedLion", 0.5], ["CougarBreed", 0.05]]
+
+[[color_schemes.Lion]]
+Skin_tone = [
+    ["FFOFurTanD", 0.9], ["FFOFurTan", 0.9], ["FFOFurGingerL", 0.9], ["FFOFurTan01", 0.9], 
+    ["FFOFurTan01", 0.9], ["FFOFurTan01", 0.9]]
+Nose = [["probability", 1.0]]
+Muzzle = [["probability", 0.5], ["FFOFurWhite", 0.15], ["FFOFurWhite", 0.2], ["FFOFurWhite", 0.1], ]
+
+[[race_customization]]
+race = "FFOLionRace"
+colors = "Lion"
+
+[[race_customization]]
+race = "ManedLion"
+sex  = "male"
+colors = "Lion"
+HAIR = { headpart = ["FFO_HairMaleMane",
+    "FFO_BoyHair01", "FFO_BoyHair02", "FFO_BoyHair03", # Child race uses same headpart list
+    "FFO_GirlHair01", "FFO_GirlHair02", 
+    ] }
+
+[[color_schemes.Cougar]]
+Skin_tone = [
+    ["FFOFurTanD", 0.9], ["FFOFurTan", 0.9], ["FFOFurGingerL", 0.9], ["FFOFurTan01", 0.9], 
+    ["FFOFurTan01", 0.9], ["FFOFurTan01", 0.9]]
+Nose = [["probability", 1.0]]
+Cougar_Stripe = [["FFOFurBlack", 0.9], ["FFOFurBlack", 0.7], ["FFOFurBlack", 0.5], ]
+Muzzle = [["FFOFurWhite", 0.9], ["FFOFurWhite", 0.7], ["FFOFurWhite", 0.5], ]
+
+[[facemorphs.Cougar]]
+Face = ["Cougar Head", 1.0]
+
+[[race_customization]]
+race = "CougarBreed"
+colors = "Cougar"
+facemorphs = "Cougar"
+
+
+####### Lykaios #######
+
+[[race_customization]]
+race = "FFOLykaiosRace"
+child_race = "FFOLykaiosChildRace"
+Muzzle            = [["probability", 0.65]]
+Muzzle_Stripe     = [["probability", 0.65]]
+Eyebrow           = [["probability", 0.65]]
+Cheek_Color_Lower = [["probability", 0.65]]
+Nose              = [["probability", 1]]
+
+####### Otters #######
+
+[[race_customization]]
+race = "FFOOtterRace"
+child_race = "FFOOtterChildRace"
+
+####### Snekdogs #######
+
+[[race_customization]]
+race = "FFOSnekdogRace"
+child_race = "FFOSnekdogChildRace"
+HAIR = 0.0
+
+
+####### Tigers #######
+
+[[race_customization]]
+race = "FFOTigerRace"
+child_race = "FFOTigerChildRace"
+weight_range = {thin=[0, 30], muscle=[30, 100]}
+Skin_tone = [["probability", 1.0]]
+Tiger_Face = [["probability", 1.0], ["FFOFurWhite", 1.0]]
+Tiger_Stripes = [["probability", 1.0]]
+
+

@@ -54,6 +54,7 @@ def run_furrification(
             patch_name=config.patch_filename,
             plugins=config.plugins,
             data_dir=config.data_dir,
+            races_dir=config.races_dir,
             output_dir=config.output_dir,
             limit=config.limit,
             only_faction=config.only_faction,

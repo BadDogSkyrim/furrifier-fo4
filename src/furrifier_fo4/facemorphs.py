@@ -29,6 +29,7 @@ from typing import Optional
 from esplib import Record
 
 from .models import Sex
+from .util import parse_range, pick_range
 
 log = logging.getLogger(__name__)
 
@@ -44,13 +45,30 @@ class RegionMorph:
     """One region entry: an optional bone transform + presets named under it.
     `sex` (None=both / 'male' / 'female') scopes it to one sex's NPCs — the
     RACE defines regions AND morph-group presets per sex, often with different
-    names, so a block is usually sex-specific."""
+    names, so a block is usually sex-specific.
+
+    Every slider is a `(lo, hi)` range, never a bare float: the catalog may
+    write `scale = 0.4` or `scale = [0.2, 0.6]`, and a bare number parses to
+    the degenerate range, so applying is one code path (see `util.parse_range`).
+    """
     name: str
-    position: Optional[tuple] = None     # (x, y, z) sliders
-    rotation: Optional[tuple] = None     # (x, y, z) sliders
-    scale: Optional[float] = None        # single slider, all axes
-    presets: list = field(default_factory=list)   # [(preset_name, weight)]
+    position: Optional[tuple] = None     # ((x_lo,x_hi), (y..), (z..)) sliders
+    rotation: Optional[tuple] = None     # ((x_lo,x_hi), (y..), (z..)) sliders
+    scale: Optional[tuple] = None        # (lo, hi), one slider for all axes
+    presets: list = field(default_factory=list)  # [(preset_name, (lo, hi))]
     sex: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        """Normalize every slider to a range, so a hand-built spec (tests, the
+        preview) can still say `scale=0.5` and mean `(0.5, 0.5)`. Idempotent:
+        an already-normalized `(lo, hi)` passes through untouched."""
+        if self.position is not None:
+            self.position = tuple(parse_range(a) for a in self.position)
+        if self.rotation is not None:
+            self.rotation = tuple(parse_range(a) for a in self.rotation)
+        if self.scale is not None:
+            self.scale = parse_range(self.scale)
+        self.presets = [(n, parse_range(w)) for n, w in self.presets]
 
     def has_transform(self) -> bool:
         return (self.position is not None or self.rotation is not None
@@ -59,11 +77,15 @@ class RegionMorph:
 
 @dataclass
 class GroupMorph:
-    """An explicit `<MPGN> = ["<MPPN>", weight]` preset, optionally sex-scoped."""
+    """An explicit `<MPGN> = ["<MPPN>", weight]` preset, optionally sex-scoped.
+    `weight` is a `(lo, hi)` range like every other slider."""
     group: str
     preset: str
-    weight: float
+    weight: tuple
     sex: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        self.weight = parse_range(self.weight)
 
 
 @dataclass
@@ -86,11 +108,15 @@ def _norm_sex(raw) -> Optional[str]:
 
 
 def _vec3(val, ctx: str) -> Optional[tuple]:
-    if not (isinstance(val, list) and len(val) == 3
-            and all(isinstance(c, (int, float)) for c in val)):
+    """`[x, y, z]` -> a range per axis. Any axis may itself be a `[lo, hi]`
+    range, so `position = [[-0.4, -0.1], 0, 0]` jitters X and pins Y/Z."""
+    if not (isinstance(val, list) and len(val) == 3):
         log.warning("facemorphs %s: expected [x, y, z], got %r; ignored", ctx, val)
         return None
-    return (float(val[0]), float(val[1]), float(val[2]))
+    axes = tuple(parse_range(c, f"{ctx}[{i}]") for i, c in enumerate(val))
+    if any(a is None for a in axes):
+        return None
+    return axes
 
 
 def parse_facemorphs(blocks: list, race_name: str) -> FaceMorphSpec:
@@ -132,27 +158,25 @@ def _parse_region(name: str, table: dict, race_name: str) -> RegionMorph:
         elif kl == "rotation":
             region.rotation = _vec3(v, f"{race_name}/{name}.rotation")
         elif kl == "scale":
-            if isinstance(v, (int, float)):
-                region.scale = float(v)
-            else:
-                log.warning("facemorphs %s/%s.scale: expected a number, got "
-                            "%r; ignored", race_name, name, v)
-        elif isinstance(v, (int, float)):
-            region.presets.append((k, float(v)))   # MPPN preset -> weight
+            region.scale = parse_range(v, f"facemorphs {race_name}/{name}.scale")
         else:
-            log.warning("facemorphs %s/%s: key %r must be position/rotation/"
-                        "scale or a preset weight, got %r; ignored",
-                        race_name, name, k, v)
+            weight = parse_range(v)
+            if weight is not None:
+                region.presets.append((k, weight))  # MPPN preset -> weight
+            else:
+                log.warning("facemorphs %s/%s: key %r must be position/rotation/"
+                            "scale or a preset weight, got %r; ignored",
+                            race_name, name, k, v)
     return region
 
 
 def _parse_group_entry(group: str, val: list, race_name: str):
-    if not (len(val) == 2 and isinstance(val[0], str)
-            and isinstance(val[1], (int, float))):
+    weight = parse_range(val[1]) if len(val) == 2 else None
+    if not (isinstance(val[0], str) and weight is not None):
         log.warning("facemorphs %s: %r must be [\"<preset>\", weight], got %r; "
                     "ignored", race_name, group, val)
         return None
-    return GroupMorph(group, val[0], float(val[1]))
+    return GroupMorph(group, val[0], weight)
 
 
 # ---------------------------------------------------------------------------
@@ -337,18 +361,37 @@ class FacialBoneRegions:
 # Apply
 # ---------------------------------------------------------------------------
 
-def _pack_fmrs(region: RegionMorph) -> bytes:
-    px, py, pz = region.position or (0.0, 0.0, 0.0)
-    rx, ry, rz = region.rotation or (0.0, 0.0, 0.0)
-    scale = region.scale if region.scale is not None else 0.0
+_ZERO3 = ((0.0, 0.0),) * 3
+
+
+def _pack_fmrs(region: RegionMorph, signature: str) -> bytes:
+    """The 7 transform sliders for one region, each drawn from its range.
+
+    Every axis gets its own `key`, so a race that jitters both position X
+    and scale doesn't move them in lockstep across NPCs.
+    """
+    def axes(ranges, kind):
+        return [pick_range(r, signature, f"{region.name}.{kind}.{i}")
+                for i, r in enumerate(ranges)]
+
+    px, py, pz = axes(region.position or _ZERO3, "position")
+    rx, ry, rz = axes(region.rotation or _ZERO3, "rotation")
+    scale = (pick_range(region.scale, signature, f"{region.name}.scale")
+             if region.scale is not None else 0.0)
     return struct.pack("<7f", px, py, pz, rx, ry, rz, scale) + _FMRS_TRAILING
 
 
 def apply_facemorphs(patch, ov: Record, race_edid: str, sex: Sex,
-                     spec: Optional[FaceMorphSpec], race_morphs: RaceMorphs) -> int:
+                     spec: Optional[FaceMorphSpec], race_morphs: RaceMorphs,
+                     signature: str = "") -> int:
     """Write a race/breed's face morphs onto a furrified NPC override `ov`:
     FMRI/FMRS region transforms + MSDK/MSDV morph-group presets. Returns the
     number of morph entries written. No-op when `spec` is None.
+
+    Every slider in the spec is a `(lo, hi)` range; `signature` is the NPC's
+    hashing signature, which decides where in each range this NPC lands. A
+    catalog written entirely with bare numbers has only degenerate ranges, so
+    the signature never matters — which is why it defaults to empty.
 
     The caller has already cleared any inherited FMRI/FMRS/MSDK/MSDV. Subrecords
     are appended in any order; esplib's save-time sort places them per the FO4
@@ -364,7 +407,7 @@ def apply_facemorphs(patch, ov: Record, race_edid: str, sex: Sex,
     def for_this_sex(entry_sex) -> bool:
         return entry_sex is None or entry_sex == sex_token
 
-    def add_preset(group: Optional[str], preset: str, weight: float,
+    def add_preset(group: Optional[str], preset: str, weight: tuple,
                    ctx: str) -> None:
         if not group:
             log.warning("facemorphs %s: %s -> no morph group; skipped", ctx,
@@ -376,7 +419,8 @@ def apply_facemorphs(patch, ov: Record, race_edid: str, sex: Sex,
                         "skipped", ctx, preset, group, race_edid)
             return
         msdk.append(mppi)
-        msdv.append(max(-1.0, min(1.0, weight)))
+        value = pick_range(weight, signature, f"{group}.{preset}")
+        msdv.append(max(-1.0, min(1.0, value)))
 
     # Regions: bone transform (FMRI/FMRS) + presets named under the region
     # (resolved via the region's AssociatedMorphGroup). Sex-filtered.
@@ -390,7 +434,7 @@ def apply_facemorphs(patch, ov: Record, race_edid: str, sex: Sex,
                             "skipped", race_edid, region.name)
             else:
                 ov.add_subrecord("FMRI", struct.pack("<I", fmri))
-                ov.add_subrecord("FMRS", _pack_fmrs(region))
+                ov.add_subrecord("FMRS", _pack_fmrs(region, signature))
                 written += 1
         for preset, weight in region.presets:
             # The region key doubles as the morph-group name: FFO names each

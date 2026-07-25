@@ -104,10 +104,11 @@ def test_parse_region_transform_and_preset():
     assert len(spec.regions) == 1 and not spec.groups
     r = spec.regions[0]
     assert r.name == "Eyes"
-    assert r.position == (0.0, 1.0, 0.0)
-    assert r.rotation == (-0.1, 0.0, 0.0)
-    assert r.scale == 1.0
-    assert r.presets == [("Slanted", 1.0)]
+    # Every slider normalizes to a (lo, hi) range; a bare number is degenerate.
+    assert r.position == ((0.0, 0.0), (1.0, 1.0), (0.0, 0.0))
+    assert r.rotation == ((-0.1, -0.1), (0.0, 0.0), (0.0, 0.0))
+    assert r.scale == (1.0, 1.0)
+    assert r.presets == [("Slanted", (1.0, 1.0))]
     assert r.has_transform()
 
 
@@ -115,7 +116,8 @@ def test_parse_explicit_group_array():
     spec = parse_facemorphs([{"Brow Type": ["Bushy", 0.75]}], "WhiteTail")
     assert len(spec.groups) == 1 and not spec.regions
     g = spec.groups[0]
-    assert (g.group, g.preset, g.weight, g.sex) == ("Brow Type", "Bushy", 0.75, None)
+    assert (g.group, g.preset, g.weight, g.sex) == (
+        "Brow Type", "Bushy", (0.75, 0.75), None)
 
 
 def test_parse_block_sex_tags_entries():
@@ -134,7 +136,7 @@ def test_parse_preset_only_region_has_no_transform():
     spec = parse_facemorphs([{"Ears - Full": {"Thick Neck": 0.5}}], "Fox")
     r = spec.regions[0]
     assert not r.has_transform()
-    assert r.presets == [("Thick Neck", 0.5)]
+    assert r.presets == [("Thick Neck", (0.5, 0.5))]
 
 
 def test_parse_malformed_group_skipped():
@@ -307,3 +309,77 @@ def test_morphed_verts_skips_missing_tri_morph_without_warning(caplog):
         assert "not in tri" not in caplog.text   # missing one warned nothing
     finally:
         tri_morph._cache.pop("fake", None)
+
+
+# ------------------------------------------------------ ranged sliders --------
+#
+# Any slider may be written `[lo, hi]` instead of a bare number; each NPC then
+# draws its own value from that range, deterministically on its signature. The
+# expected values below are that hash's output — exact, not approximate.
+
+def test_ranged_scale_varies_per_npc():
+    rm = _fox_race()
+    spec = FaceMorphSpec(regions=[
+        RegionMorph("Nose - Full", scale=[0.2, 0.6])])
+
+    def baked(signature):
+        ov = _Ov()
+        apply_facemorphs(None, ov, "FFOFoxRace", Sex.MALE, spec, rm, signature)
+        return round(struct.unpack_from("<7f", ov.get("FMRS")[0].data)[6], 4)
+
+    assert baked("RaiderFox01") == 0.3524
+    assert baked("RaiderFox02") == 0.5388
+    assert baked("RaiderFox01") == 0.3524        # same NPC, same value
+
+
+def test_ranged_position_axis_is_independent_of_scale():
+    """A jittered X and a jittered scale must not move in lockstep — each
+    slider hashes under its own key."""
+    rm = _fox_race()
+    spec = FaceMorphSpec(regions=[
+        RegionMorph("Nose - Full", position=[[-0.4, -0.1], 0, 0],
+                    scale=[0.2, 0.6])])
+    ov = _Ov()
+    apply_facemorphs(None, ov, "FFOFoxRace", Sex.MALE, spec, rm, "RaiderFox01")
+
+    px, py, pz, _, _, _, sc = struct.unpack_from("<7f", ov.get("FMRS")[0].data)
+    assert round(px, 4) == -0.2845
+    assert (py, pz) == (0.0, 0.0)                # pinned axes stay put
+    assert round(sc, 4) == 0.3524
+
+
+def test_ranged_preset_weight():
+    rm = _fox_race()
+    spec = FaceMorphSpec(groups=[GroupMorph("Nose", "Large Tip", [0.5, 0.9])])
+    ov = _Ov()
+    apply_facemorphs(None, ov, "FFOFoxRace", Sex.MALE, spec, rm, "RaiderFox01")
+
+    assert round(struct.unpack("<f", ov.get("MSDV")[0].data)[0], 4) == 0.8196
+
+
+def test_bare_number_ignores_the_signature():
+    """A catalog written with bare numbers must behave exactly as before —
+    every NPC of the race gets the identical slider."""
+    rm = _fox_race()
+    spec = FaceMorphSpec(regions=[RegionMorph("Nose - Full", scale=0.5)])
+
+    def baked(signature):
+        ov = _Ov()
+        apply_facemorphs(None, ov, "FFOFoxRace", Sex.MALE, spec, rm, signature)
+        return struct.unpack_from("<7f", ov.get("FMRS")[0].data)[6]
+
+    assert baked("RaiderFox01") == baked("MinutemenDeer") == 0.5
+
+
+def test_ranged_weight_still_clamped_to_slider_range():
+    rm = _fox_race()
+    spec = FaceMorphSpec(groups=[GroupMorph("Nose", "Large Tip", [2.0, 5.0])])
+    ov = _Ov()
+    apply_facemorphs(None, ov, "FFOFoxRace", Sex.MALE, spec, rm, "RaiderFox01")
+
+    assert struct.unpack("<f", ov.get("MSDV")[0].data)[0] == 1.0
+
+
+def test_malformed_range_ignored():
+    spec = parse_facemorphs([{"R": {"scale": [1, 2, 3]}}], "Fox")
+    assert spec.regions[0].scale is None

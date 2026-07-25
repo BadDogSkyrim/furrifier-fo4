@@ -49,6 +49,10 @@ class FurrifierConfig:
     # the loose trees. Only meaningful when build_facegen is on.
     pack: bool = False
     data_dir: Optional[str] = None      # READ source assets (auto-detected)
+    # Race-catalog dir override (races/*.toml). None = the bundled races/.
+    # Lets a test bake against a FROZEN catalog so edits to the shipping one
+    # can't silently change its output (the CK-parity golden test).
+    races_dir: Optional[str] = None
     output_dir: Optional[str] = None    # WRITE patch + FaceGenData (def: data)
     debug: bool = False
     log_file: Optional[str] = None
@@ -89,6 +93,7 @@ class FurrifierConfig:
             only_faction=factions,
             only_npcs=npcs,
             data_dir=args.data_dir,
+            races_dir=args.races_dir,
             output_dir=args.output_dir,
             debug=args.debug,
             log_file=args.log_file,
@@ -121,6 +126,10 @@ def build_parser() -> argparse.ArgumentParser:
                              "mod or test fixtures). Falls back to the game Data "
                              "for anything not found there. Defaults to the game "
                              "Data folder (auto-detected) when omitted.")
+    parser.add_argument("--races", dest="races_dir", metavar="DIR",
+                        help="Override the race-catalog dir (races/*.toml). "
+                             "Defaults to the bundled races/. Mainly for tests "
+                             "that must bake against a frozen catalog.")
     parser.add_argument("-o", "--output", dest="output_dir", metavar="DIR",
                         help="Directory to WRITE the patch + FaceGenData "
                              "(defaults to the game Data dir; point at a mod "

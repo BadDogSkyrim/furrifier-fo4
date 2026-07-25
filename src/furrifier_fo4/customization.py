@@ -24,7 +24,7 @@ from typing import Optional
 
 from .facemorphs import parse_facemorphs
 from .models import Breed, Sex
-from .util import hash_string
+from .util import hash_string, parse_probability, parse_range
 
 log = logging.getLogger(__name__)
 
@@ -60,13 +60,18 @@ class ColorRule:
     `probability` gates whether the category applies. `colors` is an ordered
     list of (clfm_edid_lower, intensity) — the allowed palette; empty means
     "any color in the race's TTEC for this category" (probability only).
+
+    Each `intensity` is a `(lo, hi)` range the NPC draws its own value from;
+    a bare catalog number normalizes to the degenerate range (see
+    `util.parse_range`), so callers resolve both forms identically.
     """
 
     __slots__ = ('probability', 'colors')
 
     def __init__(self, probability: float = 1.0, colors=()):
         self.probability = probability
-        self.colors = list(colors)
+        self.colors = [(edid, parse_range(intensity))
+                       for edid, intensity in colors]
 
 
 class Customization:
@@ -262,7 +267,8 @@ def _parse_headpart_value(val) -> HeadpartRule:
     if isinstance(val, (int, float)):
         return HeadpartRule(probability=float(val))
     if isinstance(val, dict):
-        prob = float(val.get('probability', 1.0))
+        prob = parse_probability(val.get('probability', 1.0),
+                                 "race_customization headpart probability", 1.0)
         wl = val.get('headpart', ())
         if isinstance(wl, str):
             wl = [wl]
@@ -359,9 +365,18 @@ def _parse_color_block(block: dict, name: str, source: str) -> dict:
             if (isinstance(entry, list) and len(entry) == 2
                     and isinstance(entry[0], str)):
                 if entry[0].lower() == 'probability':
-                    prob = float(entry[1])
+                    prob = parse_probability(
+                        entry[1],
+                        f"{source} color_scheme {name}/{raw_cat} probability",
+                        prob)
                 else:
-                    colors.append((entry[0].lower(), float(entry[1])))
+                    # Intensity is a slider written onto the NPC, so it takes a
+                    # [lo, hi] range as well as a bare number.
+                    intensity = parse_range(
+                        entry[1], f"{source} color_scheme {name}/{raw_cat} "
+                                  f"{entry[0]} intensity")
+                    if intensity is not None:
+                        colors.append((entry[0].lower(), intensity))
             else:
                 log.warning("%s color_scheme %s/%s: bad entry %r",
                             source, name, raw_cat, entry)
@@ -450,7 +465,12 @@ def _apply_row(cust: Customization, row: dict, source: str) -> None:
         for entry in breeds:
             if (isinstance(entry, list) and len(entry) == 2
                     and isinstance(entry[0], str)):
-                cust.set_breed(entry[0], race, float(entry[1]))
+                # A breed weight IS a probability (they sum to <=1 across a
+                # parent, remainder = unconstrained), so no range here.
+                prob = parse_probability(
+                    entry[1], f"{source}: {race}: breed {entry[0]}")
+                if prob is not None:
+                    cust.set_breed(entry[0], race, prob)
             else:
                 log.warning('%s: %s: malformed breed entry %r - expected '
                             '["BreedName", probability]', source, race, entry)
@@ -472,7 +492,20 @@ def _parse_weight_range(wr, race: str, source: str):
     `weight_range = {thin = [40, 100], fat = [0, 20]}` — pin the axes you care
     about and OMIT one to make it the slack that brings the body to sum 1. The
     legacy `[[lo,hi],[lo,hi],[lo,hi]]` (all three, in order) is still accepted.
-    0-100 -> 0-1. Returns None on malformed/empty input."""
+    0-100 -> 0-1. Each band goes through `parse_range`, so a reversed
+    `[hi, lo]` is taken as min..max rather than producing an inverted band,
+    and non-numeric entries warn instead of raising. Returns None on
+    malformed/empty input."""
+    def band(val, label):
+        """A weight band is always an explicit pair -- a bare number here is
+        a typo, not a request to pin the axis, so it still warns."""
+        if not (isinstance(val, (list, tuple)) and len(val) == 2):
+            log.warning("%s: %s weight_range.%s must be [lo, hi], got %r",
+                        source, race, label, val)
+            return None
+        rng = parse_range(val, f"{source}: {race} weight_range.{label}")
+        return None if rng is None else (rng[0] / 100.0, rng[1] / 100.0)
+
     spec = {}
     if isinstance(wr, dict):
         for name, rng in wr.items():
@@ -481,15 +514,14 @@ def _parse_weight_range(wr, race: str, source: str):
                 log.warning("%s: %s weight_range: unknown axis %r (use "
                             "thin/muscle/fat)", source, race, name)
                 continue
-            if not (isinstance(rng, list) and len(rng) == 2):
-                log.warning("%s: %s weight_range.%s must be [lo, hi], got %r",
-                            source, race, name, rng)
-                continue
-            spec[idx] = (float(rng[0]) / 100.0, float(rng[1]) / 100.0)
-    elif (isinstance(wr, list) and len(wr) == 3
-          and all(isinstance(p, list) and len(p) == 2 for p in wr)):
-        for i, (lo, hi) in enumerate(wr):
-            spec[i] = (float(lo) / 100.0, float(hi) / 100.0)
+            got = band(rng, name)
+            if got is not None:
+                spec[idx] = got
+    elif isinstance(wr, list) and len(wr) == 3:
+        for i, p in enumerate(wr):
+            got = band(p, i)
+            if got is not None:
+                spec[i] = got
     else:
         log.warning("%s: %s weight_range must be a {axis = [lo,hi]} table or "
                     "three [lo,hi] pairs, got %r", source, race, wr)
