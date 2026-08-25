@@ -22,6 +22,8 @@ from PySide6.QtWidgets import (
     QPushButton, QVBoxLayout, QWidget,
 )
 
+from esplib.utils import is_listable_dir, is_readable_file
+
 from .config import FurrifierConfig, setup_logging
 from .loader import list_available_schemes
 from .main import run_furrification
@@ -188,11 +190,102 @@ class _Worker(QThread):
             self._cache.release_handles()
 
 
+# Warnings raised before the log pane exists (command-line parsing).
+# Drained into the log once the window is up -- a windowed build has
+# nowhere else to put them.
+_startup_notes: list = []
+
+
+def _same_dir(a: str, b: str) -> bool:
+    """Compare two directory strings the way Windows would.
+
+    Case-insensitive and indifferent to trailing separators, so
+    re-focusing the field or a Browse landing on the same folder doesn't
+    count as a change and discard the user's plugin selection.
+    """
+    def norm(s: str) -> str:
+        s = (s or "").strip().rstrip("\\/")
+        try:
+            return str(Path(s)).lower() if s else ""
+        except Exception:
+            return s.lower()
+    return norm(a) == norm(b)
+
+
+def _parse_gui_args(argv: list) -> tuple:
+    """Pull our own switches out of argv; hand the rest to Qt.
+
+    `--data-dir` exists so a Mod Organizer executable definition can
+    launch the GUI already pointed at the Data folder MO2 virtualizes.
+    Auto-detection goes through the registry to the Steam install, which
+    for a Wabbajack stock-game modlist is the one Data folder guaranteed
+    not to hold the mods.
+
+    parse_known_args, not parse_args: Qt owns -style/-platform and
+    swallowing them here would break them.
+    """
+    import argparse
+    import io
+
+    parser = argparse.ArgumentParser(
+        prog="furrify_fo4_gui",
+        description="Fallout 4 Furrifier (GUI). Most settings live in the "
+                    "window; the switches here set its starting state.")
+    parser.add_argument(
+        "--data-dir", metavar="DIR",
+        help="Fallout 4 Data directory to start with, instead of the "
+             "auto-detected one. Under Mod Organizer this should be the "
+             "Data folder inside the game directory MO2 manages.")
+
+    # A windowed PyInstaller build has no stdout/stderr, and argparse
+    # writes both --help and its errors there. Writing to None raises
+    # inside argparse, so one typo in an MO2 executable definition would
+    # kill the GUI before it drew a window, with nothing on screen to say
+    # why. Capture instead, and start anyway.
+    saved = sys.stdout, sys.stderr
+    buf = io.StringIO()
+    if sys.stdout is None:
+        sys.stdout = buf
+    if sys.stderr is None:
+        sys.stderr = buf
+    try:
+        args, rest = parser.parse_known_args(argv[1:])
+    except SystemExit:
+        _startup_notes.append(
+            "Command line ignored: "
+            + (buf.getvalue().strip().replace(chr(10), " ")
+               or "unparseable"))
+        return None, [argv[0]]
+    finally:
+        sys.stdout, sys.stderr = saved
+
+    # parse_known_args doesn't complain about switches it doesn't know --
+    # it hands them to Qt. That silence is a trap: `--datadir` for
+    # `--data-dir` would start with the auto-detected Steam folder and
+    # look entirely normal, which is the exact failure this switch exists
+    # to prevent.
+    leftovers = [a for a in rest if a.startswith("-")]
+    if leftovers:
+        _startup_notes.append(
+            "Command-line switches not recognized by the furrifier, "
+            f"passed to Qt: {' '.join(leftovers)}"
+            + ("" if args.data_dir else
+               " (note --data-dir was not set; check the spelling)"))
+    return args.data_dir, [argv[0]] + rest
+
+
+
 class FurrifierWindow(QMainWindow):
-    def __init__(self) -> None:
+    def __init__(self, data_dir: Optional[str] = None) -> None:
         super().__init__()
         self.setWindowTitle("Fallout 4 Furrifier")
         self.resize(1080, 960)  # preferred; clamped to the screen on first show
+        # Overrides the auto-detected Data dir. Set from --data-dir so a
+        # Mod Organizer executable definition can launch us pointed at the
+        # Data folder MO2 actually virtualizes -- auto-detection finds the
+        # Steam install, which for a Wabbajack stock-game modlist is the
+        # one folder guaranteed NOT to hold the mods.
+        self._data_dir_override = data_dir
         self._fitted = False
         self._worker: Optional[_Worker] = None
         # One shared loaded world for both the preview and the Run, so plugins
@@ -272,6 +365,9 @@ class FurrifierWindow(QMainWindow):
 
         self.data_dir = QLineEdit()
         self.data_dir.setPlaceholderText("auto-detect Fallout 4 Data")
+        if self._data_dir_override:
+            self.data_dir.setText(self._data_dir_override)
+            self._last_data_dir = self._data_dir_override
         form.addRow("Data dir (read)", self._with_browse(self.data_dir,
                                                          self._browse_data))
         self.output_dir = QLineEdit()
@@ -457,13 +553,63 @@ class FurrifierWindow(QMainWindow):
             self._on_data_dir_changed()
 
     def _on_data_dir_changed(self) -> None:
-        """Reload the preview's NPC set + session when the Data dir actually
-        changes (not on every focus-out)."""
+        """A new data dir invalidates everything keyed to the old one.
+
+        Compared with _same_dir rather than ==: a trailing separator or a
+        difference in case is the same folder, and treating it as a change
+        would throw away the user's plugin selection for nothing.
+        """
         cur = self.data_dir.text().strip()
-        if cur == self._last_data_dir:
+        if _same_dir(cur, self._last_data_dir):
             return
         self._last_data_dir = cur
+
+        # A selection is a list of filenames valid in one directory;
+        # carried into another it misdescribes what a run will load.
+        log = logging.getLogger(__name__)
+        if self._selected_plugins is not None:
+            self._selected_plugins = None
+            self.plugins_label.setText("enabled plugins")
+            log.info("Data dir changed to %s - plugin selection cleared, "
+                     "back to the enabled load order", cur or "(unset)")
+        else:
+            log.info("Data dir changed to %s", cur or "(unset)")
+
+        self._warn_if_load_order_absent(cur)
         self.preview.on_load_order_changed()
+
+    def _warn_if_load_order_absent(self, data_dir_str: str) -> None:
+        """Say how much of the enabled load order is actually in there.
+
+        This is the whole ballgame for a Mod Organizer user: pointing at
+        the Steam install instead of the folder MO2 virtualizes silently
+        costs you every mod, and the symptom is an empty patch a long
+        while later.
+        """
+        if not data_dir_str:
+            return
+        data_dir = Path(data_dir_str)
+        # is_listable_dir, not is_dir(): stat can't see a directory that
+        # exists only inside an MO2 mod, and telling the user their data
+        # dir "does not exist" when it plainly does would be the most
+        # misleading message in the app.
+        if not is_listable_dir(data_dir):
+            logging.getLogger(__name__).warning(
+                "Data dir does not exist: %s", data_dir)
+            return
+        try:
+            from esplib import LoadOrder
+            active = list(LoadOrder.from_game("fo4", active_only=True).plugins)
+        except Exception:
+            return
+        missing = [n for n in active if not is_readable_file(data_dir / n)]
+        if not active or not missing:
+            return
+        logging.getLogger(__name__).warning(
+            "%d of %d active plugins are not in %s. If you are running "
+            "under Mod Organizer, set the data dir to the Data folder "
+            "inside the game directory MO2 manages, not the Steam install.",
+            len(missing), len(active), data_dir)
 
     def _browse_output(self) -> None:
         d = QFileDialog.getExistingDirectory(self, "Output directory")
@@ -598,6 +744,11 @@ class FurrifierWindow(QMainWindow):
             logging.getLogger("pynifly").setLevel(logging.WARNING)
             logging.getLogger("esplib").setLevel(logging.WARNING)
             self._log_handler = handler
+            # Anything the command-line parse wanted to say had nowhere
+            # to go until now -- a windowed build has no stderr.
+            while _startup_notes:
+                logging.getLogger(__name__).warning(
+                    "%s", _startup_notes.pop(0))
         self._install_file_log(log_file)
 
     def _install_file_log(self, log_file: Optional[str]) -> None:
@@ -639,13 +790,14 @@ def main() -> int:
     # source.
     import multiprocessing
     multiprocessing.freeze_support()
-    app = QApplication.instance() or QApplication(sys.argv)
+    data_dir, qt_argv = _parse_gui_args(sys.argv)
+    app = QApplication.instance() or QApplication(qt_argv)
     icon_path = _asset_path("green_wolf.png")
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
     check_url = _asset_path("check.svg").resolve().as_posix()
     app.setStyleSheet(_APP_STYLESHEET.replace("{check_icon}", check_url))
-    win = FurrifierWindow()
+    win = FurrifierWindow(data_dir=data_dir)
     win.show()
     return app.exec()
 
