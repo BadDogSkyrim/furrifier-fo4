@@ -38,6 +38,14 @@ class TestArgParsing:
             ["g.exe", "--data-dir", "X", "-style", "fusion"]
         ) == ("X", ["g.exe", "-style", "fusion"])
 
+    def test_resources_is_accepted_as_the_cli_spelling(self):
+        """The FO4 CLI calls this `--resources` (dest="data_dir"), the GUI
+        field is labelled "Data dir", and Skyrim's switch is --data-dir.
+        Accept both here so neither habit is punished."""
+        from furrifier_fo4.gui import _parse_gui_args
+        assert _parse_gui_args(["g.exe", "--resources", "Y"]) == ("Y", ["g.exe"])
+        assert _parse_gui_args(["g.exe", "--data-dir", "Y"]) == ("Y", ["g.exe"])
+
     def test_typo_in_our_switch_is_reported_not_swallowed(self):
         """`--datadir` would otherwise start with the auto-detected Steam
         folder and look entirely normal — the precise failure --data-dir

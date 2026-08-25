@@ -232,10 +232,11 @@ def _parse_gui_args(argv: list) -> tuple:
         description="Fallout 4 Furrifier (GUI). Most settings live in the "
                     "window; the switches here set its starting state.")
     parser.add_argument(
-        "--data-dir", metavar="DIR",
+        "--data-dir", "--resources", dest="data_dir", metavar="DIR",
         help="Fallout 4 Data directory to start with, instead of the "
              "auto-detected one. Under Mod Organizer this should be the "
-             "Data folder inside the game directory MO2 manages.")
+             "Data folder inside the game directory MO2 manages. "
+             "Spelled --resources on the CLI; both work here.")
 
     # A windowed PyInstaller build has no stdout/stderr, and argparse
     # writes both --help and its errors there. Writing to None raises
