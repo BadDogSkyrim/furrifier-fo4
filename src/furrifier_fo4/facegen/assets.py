@@ -15,9 +15,11 @@ PyNifly / PIL can open them by path without changes.
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import tempfile
 from pathlib import Path
+from esplib.utils import is_readable_file, ensure_dir
 from typing import Iterable, List, Optional
 
 
@@ -57,6 +59,10 @@ class AssetResolver:
         # pass explicit `bsa_readers` (tests) — those don't auto-rescan.
         self._archive_roots: Optional[List[Path]] = None
         self._readers_released = False
+        # Directory listings for the case-insensitive loose-file walk:
+        # lowercased dir path -> {lowercased entry name: real name}.
+        # See _child_named.
+        self._dir_cache: dict = {}
         # Cache: relpath-key (backslash, lowercase) -> absolute path on disk.
         self._resolved: dict[str, Path] = {}
         # Decoded-image cache piggybacked on the run-scoped resolver.
@@ -110,8 +116,9 @@ class AssetResolver:
 
         for root in (self._archive_roots or []):
             root = Path(root)
-            if not root.is_dir():
-                continue
+            # No is_dir() guard: glob on a non-directory yields nothing
+            # anyway, and stat can't be trusted to recognise a directory
+            # under MO2's virtual filesystem.
             for candidate in sorted(root.glob("*.bsa")):
                 try:
                     reader = BsaReader(candidate)
@@ -220,31 +227,61 @@ class AssetResolver:
                 return found
         return None
 
-    @staticmethod
-    def _find_loose_under(root: Path, parts: List[str]) -> Optional[Path]:
+    def _find_loose_under(self, root: Path,
+                          parts: List[str]) -> Optional[Path]:
         """Resolve `parts` under `root`, segment-by-segment, case-insensitively
-        — we don't depend on the filesystem's case handling (real-world files
-        are often `Meshes\\actors\\...` with a capital M)."""
+        -- we don't depend on the filesystem's case handling (real-world files
+        are often capital-M `Meshes`).
+
+        Every step avoids stat. Under Mod Organizer's virtual filesystem,
+        directory enumeration shows the merged view of vanilla + mods but
+        stat does not, so the old is_dir() / exists() / is_file() walk gave
+        up on the first mod-supplied directory and -- if it got past that --
+        rejected the file it had just matched by name. Enumeration finds the
+        entry; opening confirms it.
+        """
+        if not parts:
+            return None
+        dirs, filename = parts[:-1], parts[-1]
+
         current = root
-        for segment in parts:
-            if not current.is_dir():
+        for segment in dirs:
+            child = self._child_named(current, segment)
+            if child is None:
                 return None
-            # Fast path: exact match
-            direct = current / segment
-            if direct.exists():
-                current = direct
-                continue
-            # Slow path: case-insensitive scan of this directory
-            target = segment.lower()
-            match = None
-            for entry in current.iterdir():
-                if entry.name.lower() == target:
-                    match = entry
-                    break
-            if match is None:
-                return None
-            current = match
-        return current if current.is_file() else None
+            current = child
+
+        # Exact-case hit first: saves listing a directory that may hold
+        # thousands of entries when the caller already had it right.
+        direct = current / filename
+        if is_readable_file(direct):
+            return direct
+        match = self._child_named(current, filename)
+        if match is not None and is_readable_file(match):
+            return match
+        return None
+
+    def _child_named(self, parent: Path, name: str) -> Optional[Path]:
+        """Case-insensitive child lookup by directory enumeration.
+
+        Listings are cached per directory: this runs for every headpart of
+        every NPC, and re-scanning the meshes tree a few thousand times
+        would be its own performance bug. A run doesn't add files to the
+        data dir, so the cache can't go stale underneath us.
+        """
+        key = str(parent).lower()
+        listing = self._dir_cache.get(key)
+        if listing is None:
+            listing = {}
+            try:
+                with os.scandir(parent) as entries:
+                    for entry in entries:
+                        listing[entry.name.lower()] = entry.name
+            except OSError:
+                listing = {}
+            self._dir_cache[key] = listing
+        real = listing.get(name.lower())
+        return (parent / real) if real is not None else None
 
     # --------------------------------------------------------------- bsa --
 
@@ -274,6 +311,6 @@ class AssetResolver:
         # obviously its loose-path equivalent.
         normalized = relpath.replace("\\", "/")
         out = cache_dir / normalized
-        out.parent.mkdir(parents=True, exist_ok=True)
+        ensure_dir(out.parent)
         out.write_bytes(data)
         return out

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import struct
 from pathlib import Path
+from esplib.utils import ensure_dir
 
 import numpy as np
 
@@ -137,7 +138,7 @@ def write_bc7_dds(path: Path, rgba: np.ndarray, *,
     header = _build_dds_header(w, h, mip0_bytes, len(levels))
 
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_dir(path.parent)
     with open(path, "wb") as f:
         f.write(header)
         f.write(payload)

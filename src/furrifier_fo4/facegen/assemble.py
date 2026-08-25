@@ -23,6 +23,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
+from esplib.utils import ensure_dir, file_size
 from typing import Optional
 
 from .._pyn import ensure_dev_path
@@ -438,7 +439,7 @@ def build_facegen_nif(form_id: str, base_plugin: str, headparts: list,
         log.warning("no head-part shapes resolved for %s", form_id)
         return False
 
-    dst_path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_dir(dst_path.parent)
     if dst_path.exists():
         dst_path.unlink()
     dst = NifFile()
@@ -481,6 +482,12 @@ def build_facegen_nif(form_id: str, base_plugin: str, headparts: list,
                     skin_tone=skin_tone)
 
     dst.save()
-    log.debug("wrote facegeom %s (%d bytes)", dst_path,
-              os.path.getsize(dst_path))
+    # file_size, not os.path.getsize: log.debug evaluates its
+    # arguments whether or not debug is enabled, and getsize is a
+    # stat call. Under MO2 that stat fails for the nif PyNifly just
+    # wrote successfully -- on Skyrim this exact line reported "0
+    # succeeded, 4685 failed" for a run in which every bake had
+    # worked.
+    log.debug("wrote facegeom %s (%s bytes)", dst_path,
+              file_size(dst_path))
     return True

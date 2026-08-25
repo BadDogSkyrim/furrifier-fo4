@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import shutil
 from pathlib import Path
+from esplib.utils import is_listable_dir
 
 from esplib import Ba2Writer
 
@@ -39,7 +40,7 @@ def pack_facegen(out_root, patch_name) -> list:
     written: list = []
 
     geom_dir = out_root.joinpath(*_FACEGEOM_REL)
-    nifs = sorted(geom_dir.rglob("*.nif")) if geom_dir.is_dir() else []
+    nifs = sorted(geom_dir.rglob("*.nif")) if is_listable_dir(geom_dir) else []
     if nifs:
         w = Ba2Writer("GNRL")
         for nif in nifs:
@@ -49,7 +50,7 @@ def pack_facegen(out_root, patch_name) -> list:
         written.append(main_path)
 
     tex_dir = out_root.joinpath(*_FACECUST_REL)
-    ddses = sorted(tex_dir.rglob("*.dds")) if tex_dir.is_dir() else []
+    ddses = sorted(tex_dir.rglob("*.dds")) if is_listable_dir(tex_dir) else []
     if ddses:
         w = Ba2Writer("DX10")
         for dds in ddses:

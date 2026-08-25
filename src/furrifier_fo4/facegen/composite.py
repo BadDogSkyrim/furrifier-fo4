@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from esplib.utils import ensure_dir
 from typing import Optional
 
 import numpy as np
@@ -117,7 +118,7 @@ def build_facecustomization_png(form_id: str, base_diffuse: str,
                                 output_size: Optional[int] = None) -> Path:
     """Composite and save `<formid>_d.png` (debug / visual review)."""
     rgb = composite_diffuse(resolver, base_diffuse, layers, output_size)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    ensure_dir(out_dir)
     png_path = out_dir / f"{form_id}_d.png"
     Image.fromarray(_to_uint8_rgba(rgb), "RGBA").save(png_path)
     return png_path
@@ -133,7 +134,7 @@ def build_facecustomization_dds(form_id: str, base_diffuse: str,
     if output_size is not None and output_size not in VALID_OUTPUT_SIZES:
         raise ValueError(f"output_size {output_size} not in {VALID_OUTPUT_SIZES}")
     rgb = composite_diffuse(resolver, base_diffuse, layers, output_size)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    ensure_dir(out_dir)
     dds_path = out_dir / f"{form_id}_d.dds"
     # Full mip chain (mips=True). FO4's shadow/depth pre-pass
     # (BSDFPrePassShader -> BuildTextureCommandBuffer) requests a mip level on

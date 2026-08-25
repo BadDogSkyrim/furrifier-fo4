@@ -8,6 +8,8 @@ PreviewSession as an explicit `plugins` load order.
 
 from __future__ import annotations
 
+import logging
+import os
 import struct
 from pathlib import Path
 from typing import Optional
@@ -20,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from esplib import LoadOrder
+from esplib.utils import is_readable_file
 
 PLUGIN_EXTS = {".esp", ".esm", ".esl"}
 
@@ -66,27 +69,72 @@ class PluginPickerDialog(QDialog):
         self._exclude = {exclude.lower()} if exclude else set()
         self._user_toggle_in_progress = False
 
+        # Load-order entries with no readable file in data_dir. Filled by
+        # _collect_plugins; the active ones get surfaced below.
+        self._absent: list = []
+
         plugins_in_order = self._collect_plugins()
+        active = self._active_plugins()
         checked = ({p.lower() for p in initial_selection}
-                   if initial_selection is not None else self._active_plugins())
+                   if initial_selection is not None else active)
+
+        # An *inactive* plugins.txt entry that isn't there is a stale line
+        # and nobody cares. An *active* one is a plugin the game intends to
+        # load and we can't see -- either the data dir is wrong or the files
+        # aren't reachable from this process. Either way the run will come
+        # up short, so say so now rather than let the user discover it as
+        # "0 NPCs patched".
+        self._missing_active = [n for n in self._absent
+                                if n.lower() in active]
+        if self._missing_active:
+            shown = ", ".join(self._missing_active[:8])
+            if len(self._missing_active) > 8:
+                shown += f", and {len(self._missing_active) - 8} more"
+            logging.getLogger(__name__).warning(
+                "%d active plugin(s) from plugins.txt are not present in "
+                "%s and were left out of the list: %s",
+                len(self._missing_active), self._data_dir, shown)
         self._build_widgets(plugins_in_order, checked)
 
     # --- plugin lists ------------------------------------------------------
 
     def _collect_plugins(self) -> list:
+        """Ordered plugin list: load-order order, then extras on disk.
+
+        Intersected with what's actually in the data dir. A plugins.txt
+        entry we can't read cannot be loaded, so listing it only invites a
+        run that reports it missing -- which is exactly the confusion this
+        list exists to prevent. Dropped names are kept in `_absent` so the
+        caller can say so out loud.
+
+        Enumeration, not stat: under MO2 `iterdir().is_file()` filters out
+        every mod-supplied plugin the listing had just found. A DirEntry
+        answers is_file() from the enumeration data, with no stat call.
+        """
         load_order_names = []
         try:
             load_order_names = list(LoadOrder.from_game("fo4", active_only=False).plugins)
         except Exception:
             pass
         on_disk = []
-        if self._data_dir.is_dir():
-            for entry in sorted(self._data_dir.iterdir(),
-                                key=lambda p: p.name.lower()):
-                if entry.is_file() and entry.suffix.lower() in PLUGIN_EXTS:
-                    on_disk.append(entry.name)
-        seen = {n.lower() for n in load_order_names}
-        combined = load_order_names + [n for n in on_disk if n.lower() not in seen]
+        try:
+            with os.scandir(self._data_dir) as entries:
+                for entry in entries:
+                    if (Path(entry.name).suffix.lower() in PLUGIN_EXTS
+                            and entry.is_file()):
+                        on_disk.append(entry.name)
+        except OSError:
+            pass
+        on_disk.sort(key=str.lower)
+        on_disk_lower = {n.lower() for n in on_disk}
+
+        present = [n for n in load_order_names if n.lower() in on_disk_lower]
+        self._absent = [n for n in load_order_names
+                        if n.lower() not in on_disk_lower
+                        and n.lower() not in self._exclude]
+
+        seen = {n.lower() for n in present}
+        combined = present + [n for n in on_disk if n.lower() not in seen]
         if self._exclude:
             combined = [n for n in combined if n.lower() not in self._exclude]
         return combined
@@ -112,6 +160,24 @@ class PluginPickerDialog(QDialog):
 
         self.summary_label = QLabel("", self)
         layout.addWidget(self.summary_label)
+
+        # Absent-but-active plugins get a standing banner rather than a
+        # modal -- the user needs it while looking at the list, not as
+        # something to click past before seeing it.
+        if self._missing_active:
+            warn = QLabel(
+                f"⚠ {len(self._missing_active)} active plugin(s) in "
+                f"plugins.txt are not in this data directory and can't be "
+                f"loaded. Hover for the list.", self)
+            warn.setWordWrap(True)
+            # Cap the tooltip -- when the data dir is wrong this list is the
+            # entire load order, and a 250-line tooltip is a wall.
+            names = self._missing_active[:40]
+            if len(self._missing_active) > 40:
+                names.append(f"... and {len(self._missing_active) - 40} more")
+            warn.setToolTip("\n".join(names))
+            warn.setObjectName("pluginWarning")
+            layout.addWidget(warn)
 
         self.list_widget = QListWidget(self)
         self.list_widget.setSelectionMode(
@@ -179,7 +245,7 @@ class PluginPickerDialog(QDialog):
         if key not in self._master_cache:
             path = self._data_dir / name
             self._master_cache[key] = (read_plugin_masters(path)
-                                       if path.is_file() else [])
+                                       if is_readable_file(path) else [])
         return self._master_cache[key]
 
     def _pull_in_masters(self, name: str) -> None:

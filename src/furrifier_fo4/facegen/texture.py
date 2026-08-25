@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import struct
 from pathlib import Path
+from esplib.utils import is_readable_file
 from typing import Optional, Union
 
 from PIL import Image
@@ -87,7 +88,11 @@ def open_texture(path: Union[str, Path]) -> Image.Image:
     try:
         return Image.open(path)
     except Exception as exc:
-        image = _read_dx10_uncompressed(path) if path.is_file() else None
+        # is_readable_file, not is_file(): stat can't see MO2's virtual
+        # files, so this would skip the fallback for exactly the
+        # mod-supplied textures most likely to need it.
+        image = (_read_dx10_uncompressed(path)
+                 if is_readable_file(path) else None)
         if image is not None:
             return image
         raise TextureLoadError(f"{path}: {exc}") from exc

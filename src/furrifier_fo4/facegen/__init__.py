@@ -29,6 +29,7 @@ from __future__ import annotations
 import logging
 import struct
 from pathlib import Path
+from esplib.utils import ensure_dir
 from typing import Optional
 
 from esplib import race_height
@@ -338,7 +339,7 @@ def build_facegen_for_patch(patch, plugin_set, data_dir,
 
         # Ensure every per-plugin output dir exists before any worker writes.
         for d in set(_tex_dirs.values()) | set(_nif_dirs.values()):
-            d.mkdir(parents=True, exist_ok=True)
+            ensure_dir(d)
 
         total = len(work)
         if progress is not None:
