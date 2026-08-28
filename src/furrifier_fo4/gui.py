@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 
 from esplib.utils import is_listable_dir, is_readable_file
 
+from .build_info import version_string
 from .config import FurrifierConfig, setup_logging
 from .loader import list_available_schemes
 from .main import run_furrification
@@ -279,7 +280,7 @@ def _parse_gui_args(argv: list) -> tuple:
 class FurrifierWindow(QMainWindow):
     def __init__(self, data_dir: Optional[str] = None) -> None:
         super().__init__()
-        self.setWindowTitle("Fallout 4 Furrifier")
+        self.setWindowTitle(f"Fallout 4 Furrifier {version_string()}")
         self.resize(1080, 960)  # preferred; clamped to the screen on first show
         # Overrides the auto-detected Data dir. Set from --data-dir so a
         # Mod Organizer executable definition can launch us pointed at the

@@ -16,7 +16,7 @@ from typing import Optional
 from .config import FurrifierConfig, build_parser, normalize_argv, setup_logging
 from . import session
 from .session import ProgressCallback, CancelledError
-from ._version import __version__
+from .build_info import version_string
 
 log = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ def log_run_header(config: FurrifierConfig) -> None:
     log always opens with it, before any world-load/validation output. The CLI
     path logs it from run_furrification; callers that pre-build the world (the
     GUI worker) call this themselves first, before the build."""
-    log.info("Fallout 4 Furrifier %s", __version__)
+    log.info("Fallout 4 Furrifier %s", version_string())
     log.info("  Scheme:        %s", config.race_scheme)
     log.info("  Patch:         %s", config.patch_filename)
     log.info("  Build FaceGen: %s", config.build_facegen)

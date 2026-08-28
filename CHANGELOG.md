@@ -1,6 +1,6 @@
 # Release notes
 
-## v1.1.4 — 2026-08-28
+## v1.2.0 — 2026-08-28
 
 First standalone release. Earlier versions shipped bundled inside the Furry
 Fallout kit, so if you installed the kit, the version you already have is
@@ -92,6 +92,13 @@ unaffected by the fix.
   bands, tint output differs from a 1.1.1 patch for every furrified NPC, even
   at the same scheme and seed. Re-run the furrifier if you want your patch to
   match what this version produces.
+
+- **Version numbers mean something now.** The third component used to be a
+  build counter that incremented on every rebuild, so 1.1.2 through 1.1.4 were
+  the same release rebuilt, not three releases. It's a patch number now, and
+  the build is reported separately — the GUI title and the run log say
+  `v1.2.0 build 3`, matching how the Skyrim furrifier has always reported
+  itself. That's also why this release is 1.2.0 rather than 1.1.4.
 
 - **MO2 users:** point the tool at the Data folder MO2 virtualizes, which for
   a Wabbajack list is the modlist's own game copy, not the Steam install.

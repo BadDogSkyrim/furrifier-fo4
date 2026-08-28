@@ -15,7 +15,7 @@ from typing import Callable, Optional
 from esplib import LoadOrder, PluginSet, Plugin, find_game_data, find_strings_dir
 
 from .extract import FactExtractor
-from ._version import __version__
+from . import __version__
 from .furrify import RaceLibrary, furrify_npc, apply_furry, is_child_npc
 from .loader import load_scheme
 from .models import (
